@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
 const TASK_TYPES = [
   'Unloading',
@@ -178,6 +179,7 @@ export default function Home() {
         <h1 className="text-xl font-bold text-gray-800">Cold Storage Tracker</h1>
         <div className="flex items-center gap-4">
           <span className="text-sm text-gray-500 hidden sm:block">{user.email}</span>
+          <Link href="/reports" className="text-sm text-blue-600 hover:underline">Reports</Link>
           <button onClick={handleSignOut} className="text-sm text-red-600 hover:underline">
             Sign Out
           </button>
