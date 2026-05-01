@@ -6,6 +6,7 @@ import Link from 'next/link'
 
 const TASK_TYPES = [
   'Unloading',
+  'Loading',
   'Temperature Check',
   'Inspection',
   'Quality Check',
@@ -155,11 +156,16 @@ export default function Home() {
 
   async function clearDoor(arrivalId, doorNum) {
     setClearing(doorNum)
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('arrivals')
       .update({ cleared_at: new Date().toISOString() })
       .eq('id', arrivalId)
-    if (!error) {
+      .select()
+    if (error) {
+      alert('Could not clear door: ' + error.message)
+    } else if (!data || data.length === 0) {
+      alert('Could not clear door — you may not have permission. Ask your admin to check Supabase RLS policies on the arrivals table.')
+    } else {
       fetchDoorStatus()
       fetchArrivals()
     }
