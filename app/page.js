@@ -4,6 +4,19 @@ import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
+const VENDORS = [
+  'Dough Connection',
+  'Dumpling Daughter',
+  'Engo',
+  'Farmers & Cooks',
+  'Galleria',
+  'Haddonfield',
+  'Jessica',
+  'Nashoba',
+  "Papa's Catch",
+  'Stuff Foods',
+]
+
 const TASK_TYPES = [
   'Unloading',
   'Loading',
@@ -58,7 +71,6 @@ export default function Home() {
   const [editingTaskEnd, setEditingTaskEnd] = useState(null)
   const [taskEndValue, setTaskEndValue] = useState('')
 
-  const [vendors, setVendors] = useState([])
   const [clearing, setClearing] = useState(null)
   const router = useRouter()
 
@@ -111,9 +123,6 @@ export default function Home() {
         fetchArrivals()
         fetchDoorStatus()
         fetchTasks()
-        supabase.from('arrivals').select('vendor_name').then(({ data }) => {
-          if (data) setVendors([...new Set(data.map(r => r.vendor_name).filter(Boolean))].sort())
-        })
       }
     })
   }, [router, fetchArrivals, fetchDoorStatus, fetchTasks])
@@ -345,7 +354,7 @@ export default function Home() {
                 required
               />
               <datalist id="vendor-list">
-                {vendors.map(v => <option key={v} value={v} />)}
+                {VENDORS.map(v => <option key={v} value={v} />)}
               </datalist>
             </div>
             <div>
