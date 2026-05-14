@@ -155,6 +155,7 @@ export default function Home() {
     setArrivalMessage(null)
     const timestamp = arrivedAt ? new Date(arrivedAt).toISOString() : new Date().toISOString()
     const { error } = await supabase.from('arrivals').insert({
+      id: crypto.randomUUID(),
       vendor_name: vendorName,
       truck_number: truckNumber,
       po_number: poNumber || null,
