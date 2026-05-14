@@ -437,6 +437,7 @@ export default function Home() {
                   type="datetime-local"
                   value={arrivedAt}
                   onChange={e => setArrivedAt(e.target.value)}
+                  onFocus={() => { if (!arrivedAt) setArrivedAt(nowLocal()) }}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -627,6 +628,7 @@ export default function Home() {
                               type="datetime-local"
                               value={taskEnded}
                               onChange={e => setTaskEnded(e.target.value)}
+                              onFocus={() => { if (!taskEnded) setTaskEnded(nowLocal()) }}
                               className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                             />
                           </div>
