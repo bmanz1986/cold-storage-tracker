@@ -30,15 +30,23 @@ const TASK_TYPES = [
 
 function nowLocal() {
   const now = new Date()
-  now.setSeconds(0, 0)
-  return now.toISOString().slice(0, 16)
+  const y = now.getFullYear()
+  const mo = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  const h = String(now.getHours()).padStart(2, '0')
+  const mi = String(now.getMinutes()).padStart(2, '0')
+  return `${y}-${mo}-${d}T${h}:${mi}`
 }
 
 function toLocalInput(isoString) {
   if (!isoString) return ''
   const d = new Date(isoString)
-  d.setSeconds(0, 0)
-  return d.toISOString().slice(0, 16)
+  const y = d.getFullYear()
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const dy = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const mi = String(d.getMinutes()).padStart(2, '0')
+  return `${y}-${mo}-${dy}T${h}:${mi}`
 }
 
 export default function Home() {
