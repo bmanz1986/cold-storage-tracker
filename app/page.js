@@ -296,6 +296,8 @@ export default function Home() {
     router.push('/login')
   }
 
+  const isAdmin = user?.user_metadata?.role === 'admin'
+
   const filteredArrivals = search.trim()
     ? arrivals.filter(a => a.vendor_name.toLowerCase().includes(search.toLowerCase()))
     : arrivals
@@ -308,6 +310,7 @@ export default function Home() {
         <h1 className="text-xl font-bold text-gray-800">Cold Storage Tracker</h1>
         <div className="flex items-center gap-4">
           <span className="text-sm text-gray-500 hidden sm:block">{user.email}</span>
+          {isAdmin && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Admin</span>}
           <Link href="/reports" className="text-sm text-blue-600 hover:underline">Reports</Link>
           <button onClick={handleSignOut} className="text-sm text-red-600 hover:underline">
             Switch User
@@ -551,10 +554,12 @@ export default function Home() {
                           <p className="text-sm text-gray-400 whitespace-nowrap">
                             {new Date(a.arrived_at).toLocaleString()}
                           </p>
-                          <button onClick={() => openEditArrival(a)}
-                            className="text-xs text-blue-500 hover:underline">Edit</button>
-                          <button onClick={() => deleteArrival(a.id)}
-                            className="text-xs text-red-400 hover:underline">Delete</button>
+                          {isAdmin && <>
+                            <button onClick={() => openEditArrival(a)}
+                              className="text-xs text-blue-500 hover:underline">Edit</button>
+                            <button onClick={() => deleteArrival(a.id)}
+                              className="text-xs text-red-400 hover:underline">Delete</button>
+                          </>}
                         </div>
                       </div>
 
