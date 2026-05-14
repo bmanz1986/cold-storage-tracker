@@ -224,9 +224,14 @@ export default function Home() {
 
   async function deleteTask(id) {
     if (!window.confirm('Delete this task?')) return
-    const { error } = await supabase.from('tasks').delete().eq('id', id)
-    if (!error) fetchTasks()
-    else alert('Could not delete: ' + error.message)
+    const { data, error } = await supabase.from('tasks').delete().eq('id', id).select()
+    if (error) {
+      alert('Could not delete: ' + error.message)
+    } else if (!data || data.length === 0) {
+      alert('Delete was blocked — a permission rule in Supabase is preventing it. See instructions to fix.')
+    } else {
+      fetchTasks()
+    }
   }
 
   async function saveTaskEnd(taskId) {
