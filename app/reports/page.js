@@ -23,10 +23,26 @@ function average(nums) {
   return Math.round(valid.reduce((a, b) => a + b, 0) / valid.length)
 }
 
+function downloadCsv(filename, headers, rows) {
+  const lines = [
+    headers.join(','),
+    ...rows.map(r => r.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',')),
+  ]
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export default function ReportsPage() {
   const [arrivals, setArrivals] = useState([])
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
   const router = useRouter()
 
   useEffect(() => {
@@ -49,9 +65,18 @@ export default function ReportsPage() {
     </div>
   )
 
+  const filteredArrivals = arrivals.filter(a => {
+    const t = new Date(a.arrived_at)
+    if (fromDate && t < new Date(fromDate + 'T00:00:00')) return false
+    if (toDate && t > new Date(toDate + 'T23:59:59')) return false
+    return true
+  })
+  const filteredArrivalIds = new Set(filteredArrivals.map(a => a.id))
+  const filteredTasks = tasks.filter(t => filteredArrivalIds.has(t.arrival_id))
+
   // Vendor stats
   const vendorMap = {}
-  arrivals.forEach(a => {
+  filteredArrivals.forEach(a => {
     if (!vendorMap[a.vendor_name]) vendorMap[a.vendor_name] = { count: 0, dockTimes: [] }
     vendorMap[a.vendor_name].count++
     vendorMap[a.vendor_name].dockTimes.push(minutesBetween(a.arrived_at, a.cleared_at))
@@ -62,7 +87,7 @@ export default function ReportsPage() {
 
   // Door stats
   const doorMap = {}
-  arrivals.filter(a => a.door).forEach(a => {
+  filteredArrivals.filter(a => a.door).forEach(a => {
     if (!doorMap[a.door]) doorMap[a.door] = { count: 0, dockTimes: [] }
     doorMap[a.door].count++
     doorMap[a.door].dockTimes.push(minutesBetween(a.arrived_at, a.cleared_at))
@@ -75,7 +100,7 @@ export default function ReportsPage() {
 
   // Team member stats
   const memberMap = {}
-  tasks.forEach(t => {
+  filteredTasks.forEach(t => {
     const name = t.performer_email.split('@')[0]
     if (!memberMap[name]) memberMap[name] = { count: 0, durations: [], taskCounts: {} }
     memberMap[name].count++
@@ -91,23 +116,60 @@ export default function ReportsPage() {
     }))
     .sort((a, b) => b.count - a.count)
 
+  const dateLabel = (fromDate || toDate)
+    ? `${fromDate || 'start'}-to-${toDate || 'today'}`
+    : 'all-time'
+
   return (
     <div className="min-h-screen bg-gray-100">
       <header className="bg-white shadow-sm px-6 py-4 flex justify-between items-center">
-        <h1 className="text-xl font-bold text-gray-800">Cold Storage Tracker</h1>
-        <Link href="/" className="text-sm text-blue-600 hover:underline">← Back to Dashboard</Link>
+        <h1 className="text-xl font-bold text-gray-800">Cold Storage Tracker — Reports</h1>
+        <div className="flex items-center gap-4">
+          <button onClick={() => window.print()} className="text-sm text-gray-600 hover:underline">
+            Print / Save PDF
+          </button>
+          <Link href="/" className="text-sm text-blue-600 hover:underline">← Dashboard</Link>
+        </div>
       </header>
 
       <main className="max-w-2xl mx-auto p-6 space-y-6">
 
+        {/* Date range filter */}
+        <div className="bg-white rounded-lg shadow-sm p-4 flex flex-wrap items-center gap-4">
+          <span className="text-sm font-medium text-gray-700">Filter by date:</span>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-500">From</label>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={e => setFromDate(e.target.value)}
+              className="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-500">To</label>
+            <input
+              type="date"
+              value={toDate}
+              onChange={e => setToDate(e.target.value)}
+              className="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          {(fromDate || toDate) && (
+            <button onClick={() => { setFromDate(''); setToDate('') }} className="text-sm text-gray-400 hover:text-gray-600">
+              Clear
+            </button>
+          )}
+        </div>
+
         {/* Summary cards */}
         <div className="grid grid-cols-3 gap-4">
           <div className="bg-white rounded-lg shadow-sm p-4 text-center">
-            <p className="text-3xl font-bold text-blue-600">{arrivals.length}</p>
+            <p className="text-3xl font-bold text-blue-600">{filteredArrivals.length}</p>
             <p className="text-sm text-gray-500 mt-1">Total Arrivals</p>
           </div>
           <div className="bg-white rounded-lg shadow-sm p-4 text-center">
-            <p className="text-3xl font-bold text-blue-600">{tasks.length}</p>
+            <p className="text-3xl font-bold text-blue-600">{filteredTasks.length}</p>
             <p className="text-sm text-gray-500 mt-1">Tasks Logged</p>
           </div>
           <div className="bg-white rounded-lg shadow-sm p-4 text-center">
@@ -118,7 +180,19 @@ export default function ReportsPage() {
 
         {/* Vendor report */}
         <div className="bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-gray-800 mb-4">By Vendor</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-gray-800">By Vendor</h2>
+            <button
+              onClick={() => downloadCsv(
+                `vendors-${dateLabel}.csv`,
+                ['Vendor', 'Arrivals', 'Avg Dock Time'],
+                vendorStats.map(v => [v.name, v.count, formatMinutes(v.avgDock)])
+              )}
+              className="text-xs text-blue-600 hover:underline"
+            >
+              Export CSV
+            </button>
+          </div>
           {vendorStats.length === 0 ? (
             <p className="text-gray-400 text-sm">No data yet.</p>
           ) : (
@@ -145,7 +219,19 @@ export default function ReportsPage() {
 
         {/* Door report */}
         <div className="bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-gray-800 mb-4">By Door</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-gray-800">By Door</h2>
+            <button
+              onClick={() => downloadCsv(
+                `doors-${dateLabel}.csv`,
+                ['Door', 'Arrivals', 'Avg Occupancy'],
+                doorStats.map(d => [`Door ${d.door}`, d.count, formatMinutes(d.avgDock)])
+              )}
+              className="text-xs text-blue-600 hover:underline"
+            >
+              Export CSV
+            </button>
+          </div>
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-gray-500 border-b border-gray-100">
@@ -168,7 +254,19 @@ export default function ReportsPage() {
 
         {/* Team member report */}
         <div className="bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-gray-800 mb-4">By Team Member</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-gray-800">By Team Member</h2>
+            <button
+              onClick={() => downloadCsv(
+                `team-${dateLabel}.csv`,
+                ['Team Member', 'Tasks', 'Avg Duration', 'Top Task'],
+                memberStats.map(m => [m.name, m.count, formatMinutes(m.avgDuration), m.topTask])
+              )}
+              className="text-xs text-blue-600 hover:underline"
+            >
+              Export CSV
+            </button>
+          </div>
           {memberStats.length === 0 ? (
             <p className="text-gray-400 text-sm">No tasks logged yet.</p>
           ) : (
