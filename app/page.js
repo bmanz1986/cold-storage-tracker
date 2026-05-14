@@ -49,15 +49,19 @@ export default function Home() {
   const [search, setSearch] = useState('')
 
   const [vendorName, setVendorName] = useState('')
-  const [truckPo, setTruckPo] = useState('')
+  const [truckNumber, setTruckNumber] = useState('')
+  const [poNumber, setPoNumber] = useState('')
   const [arrivedAt, setArrivedAt] = useState('')
   const [door, setDoor] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [arrivalMessage, setArrivalMessage] = useState(null)
 
+  const [truckNumbers, setTruckNumbers] = useState([])
+
   const [editingArrival, setEditingArrival] = useState(null)
   const [editVendor, setEditVendor] = useState('')
-  const [editPo, setEditPo] = useState('')
+  const [editTruckNum, setEditTruckNum] = useState('')
+  const [editPoNum, setEditPoNum] = useState('')
   const [editDoor, setEditDoor] = useState('')
   const [editTime, setEditTime] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
@@ -123,6 +127,9 @@ export default function Home() {
         fetchArrivals()
         fetchDoorStatus()
         fetchTasks()
+        supabase.from('arrivals').select('truck_number').then(({ data }) => {
+          if (data) setTruckNumbers([...new Set(data.map(r => r.truck_number).filter(Boolean))].sort())
+        })
       }
     })
   }, [router, fetchArrivals, fetchDoorStatus, fetchTasks])
@@ -147,7 +154,8 @@ export default function Home() {
     const timestamp = arrivedAt ? new Date(arrivedAt).toISOString() : new Date().toISOString()
     const { error } = await supabase.from('arrivals').insert({
       vendor_name: vendorName,
-      truck_po: truckPo,
+      truck_number: truckNumber,
+      po_number: poNumber || null,
       arrived_at: timestamp,
       logged_by: user.id,
       door: door ? parseInt(door) : null,
@@ -157,9 +165,11 @@ export default function Home() {
     } else {
       setArrivalMessage({ type: 'success', text: 'Arrival logged!' })
       setVendorName('')
-      setTruckPo('')
+      setTruckNumber('')
+      setPoNumber('')
       setArrivedAt('')
       setDoor('')
+      setTruckNumbers(prev => [...new Set([...prev, truckNumber])].sort())
       fetchArrivals()
       fetchDoorStatus()
     }
@@ -169,7 +179,8 @@ export default function Home() {
   function openEditArrival(a) {
     setEditingArrival(a.id)
     setEditVendor(a.vendor_name)
-    setEditPo(a.truck_po)
+    setEditTruckNum(a.truck_number || a.truck_po || '')
+    setEditPoNum(a.po_number || '')
     setEditDoor(a.door ? String(a.door) : '')
     setEditTime(toLocalInput(a.arrived_at))
   }
@@ -179,7 +190,8 @@ export default function Home() {
     setSavingEdit(true)
     const { error } = await supabase.from('arrivals').update({
       vendor_name: editVendor,
-      truck_po: editPo,
+      truck_number: editTruckNum,
+      po_number: editPoNum || null,
       door: editDoor ? parseInt(editDoor) : null,
       arrived_at: new Date(editTime).toISOString(),
     }).eq('id', editingArrival)
@@ -357,18 +369,36 @@ export default function Home() {
                 {VENDORS.map(v => <option key={v} value={v} />)}
               </datalist>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Truck / PO Number <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={truckPo}
-                onChange={e => setTruckPo(e.target.value)}
-                placeholder="e.g. PO-1234"
-                className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Truck # <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={truckNumber}
+                  onChange={e => setTruckNumber(e.target.value)}
+                  placeholder="e.g. T-101"
+                  list="truck-list"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+                <datalist id="truck-list">
+                  {truckNumbers.map(t => <option key={t} value={t} />)}
+                </datalist>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  PO # <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={poNumber}
+                  onChange={e => setPoNumber(e.target.value)}
+                  placeholder="e.g. PO-1234"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -440,9 +470,15 @@ export default function Home() {
                             className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Truck / PO</label>
-                          <input type="text" value={editPo} onChange={e => setEditPo(e.target.value)}
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Truck #</label>
+                          <input type="text" value={editTruckNum} onChange={e => setEditTruckNum(e.target.value)}
+                            list="truck-list"
                             className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">PO # <span className="text-gray-400 font-normal">(optional)</span></label>
+                          <input type="text" value={editPoNum} onChange={e => setEditPoNum(e.target.value)}
+                            className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Door</label>
@@ -473,7 +509,8 @@ export default function Home() {
                         <div>
                           <p className="font-medium text-gray-800">{a.vendor_name}</p>
                           <p className="text-sm text-gray-500">
-                            PO / Truck: {a.truck_po}
+                            Truck: {a.truck_number || a.truck_po}
+                            {a.po_number ? ` · PO: ${a.po_number}` : ''}
                             {a.door ? ` · Door ${a.door}` : ''}
                             {a.cleared_at ? ' · Cleared' : ''}
                           </p>
