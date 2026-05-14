@@ -50,6 +50,7 @@ export default function Home() {
 
   const [vendorName, setVendorName] = useState('')
   const [truckNumber, setTruckNumber] = useState('')
+  const [isNewTruck, setIsNewTruck] = useState(false)
   const [poNumber, setPoNumber] = useState('')
   const [arrivedAt, setArrivedAt] = useState('')
   const [door, setDoor] = useState('')
@@ -61,6 +62,7 @@ export default function Home() {
   const [editingArrival, setEditingArrival] = useState(null)
   const [editVendor, setEditVendor] = useState('')
   const [editTruckNum, setEditTruckNum] = useState('')
+  const [isNewTruckEdit, setIsNewTruckEdit] = useState(false)
   const [editPoNum, setEditPoNum] = useState('')
   const [editDoor, setEditDoor] = useState('')
   const [editTime, setEditTime] = useState('')
@@ -166,10 +168,11 @@ export default function Home() {
       setArrivalMessage({ type: 'success', text: 'Arrival logged!' })
       setVendorName('')
       setTruckNumber('')
+      setIsNewTruck(false)
       setPoNumber('')
       setArrivedAt('')
       setDoor('')
-      setTruckNumbers(prev => [...new Set([...prev, truckNumber])].sort())
+      if (truckNumber) setTruckNumbers(prev => [...new Set([...prev, truckNumber])].sort())
       fetchArrivals()
       fetchDoorStatus()
     }
@@ -179,7 +182,9 @@ export default function Home() {
   function openEditArrival(a) {
     setEditingArrival(a.id)
     setEditVendor(a.vendor_name)
-    setEditTruckNum(a.truck_number || a.truck_po || '')
+    const t = a.truck_number || a.truck_po || ''
+    setEditTruckNum(t)
+    setIsNewTruckEdit(t && !truckNumbers.includes(t))
     setEditPoNum(a.po_number || '')
     setEditDoor(a.door ? String(a.door) : '')
     setEditTime(toLocalInput(a.arrived_at))
@@ -354,38 +359,46 @@ export default function Home() {
           <form onSubmit={handleArrivalSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Vendor Name <span className="text-red-500">*</span>
+                Vendor <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
+              <select
                 value={vendorName}
                 onChange={e => setVendorName(e.target.value)}
-                placeholder="e.g. Acme Farms"
-                list="vendor-list"
                 className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
-              />
-              <datalist id="vendor-list">
-                {VENDORS.map(v => <option key={v} value={v} />)}
-              </datalist>
+              >
+                <option value="">-- Select vendor --</option>
+                {VENDORS.map(v => <option key={v} value={v}>{v}</option>)}
+              </select>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Truck # <span className="text-red-500">*</span>
+                  Truck # <span className="text-gray-400 font-normal">(optional)</span>
                 </label>
-                <input
-                  type="text"
-                  value={truckNumber}
-                  onChange={e => setTruckNumber(e.target.value)}
-                  placeholder="e.g. T-101"
-                  list="truck-list"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-                <datalist id="truck-list">
-                  {truckNumbers.map(t => <option key={t} value={t} />)}
-                </datalist>
+                {isNewTruck ? (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={truckNumber}
+                      onChange={e => setTruckNumber(e.target.value)}
+                      placeholder="Enter truck #"
+                      className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button type="button" onClick={() => { setIsNewTruck(false); setTruckNumber('') }}
+                      className="text-gray-400 hover:text-gray-600 px-2">✕</button>
+                  </div>
+                ) : (
+                  <select
+                    value={truckNumber}
+                    onChange={e => { if (e.target.value === '__new__') { setIsNewTruck(true); setTruckNumber('') } else setTruckNumber(e.target.value) }}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">-- Select --</option>
+                    {truckNumbers.map(t => <option key={t} value={t}>{t}</option>)}
+                    <option value="__new__">+ New truck #...</option>
+                  </select>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -465,15 +478,32 @@ export default function Home() {
                     <form onSubmit={handleSaveArrival} className="bg-blue-50 rounded-md p-3 space-y-3">
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Vendor Name</label>
-                          <input type="text" value={editVendor} onChange={e => setEditVendor(e.target.value)}
-                            className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Vendor</label>
+                          <select value={editVendor} onChange={e => setEditVendor(e.target.value)}
+                            className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                            <option value="">-- Select --</option>
+                            {VENDORS.map(v => <option key={v} value={v}>{v}</option>)}
+                          </select>
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Truck #</label>
-                          <input type="text" value={editTruckNum} onChange={e => setEditTruckNum(e.target.value)}
-                            list="truck-list"
-                            className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                          {isNewTruckEdit ? (
+                            <div className="flex gap-1">
+                              <input type="text" value={editTruckNum} onChange={e => setEditTruckNum(e.target.value)}
+                                placeholder="Enter truck #"
+                                className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                              <button type="button" onClick={() => { setIsNewTruckEdit(false); setEditTruckNum('') }}
+                                className="text-gray-400 hover:text-gray-600 px-1">✕</button>
+                            </div>
+                          ) : (
+                            <select value={editTruckNum}
+                              onChange={e => { if (e.target.value === '__new__') { setIsNewTruckEdit(true); setEditTruckNum('') } else setEditTruckNum(e.target.value) }}
+                              className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                              <option value="">-- Select --</option>
+                              {truckNumbers.map(t => <option key={t} value={t}>{t}</option>)}
+                              <option value="__new__">+ New truck #...</option>
+                            </select>
+                          )}
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">PO # <span className="text-gray-400 font-normal">(optional)</span></label>
