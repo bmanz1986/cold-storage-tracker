@@ -66,6 +66,7 @@ export default function Home() {
   const [submitting, setSubmitting] = useState(false)
   const [arrivalMessage, setArrivalMessage] = useState(null)
 
+  const [vendorList, setVendorList] = useState(VENDORS)
   const [truckNumbers, setTruckNumbers] = useState([])
 
   const [editingArrival, setEditingArrival] = useState(null)
@@ -188,6 +189,15 @@ export default function Home() {
         supabase.from('arrivals').select('truck_number').then(({ data }) => {
           if (data) setTruckNumbers([...new Set(data.map(r => r.truck_number).filter(Boolean))].sort())
         })
+        Promise.all([
+          supabase.from('arrivals').select('vendor_name'),
+          supabase.from('inspections').select('vendor_name'),
+        ]).then(([{ data: av }, { data: iv }]) => {
+          const all = [...VENDORS]
+          if (av) av.forEach(r => { if (r.vendor_name) all.push(r.vendor_name) })
+          if (iv) iv.forEach(r => { if (r.vendor_name) all.push(r.vendor_name) })
+          setVendorList([...new Set(all)].sort())
+        })
       }
     })
   }, [router, fetchArrivals, fetchDoorStatus, fetchTasks, fetchInspections])
@@ -241,7 +251,7 @@ export default function Home() {
   function openEditArrival(a) {
     setEditingArrival(a.id)
     setEditVendor(a.vendor_name)
-    setIsNewVendorEdit(!VENDORS.includes(a.vendor_name))
+    setIsNewVendorEdit(!vendorList.includes(a.vendor_name))
     const t = a.truck_number || a.truck_po || ''
     setEditTruckNum(t)
     setIsNewTruckEdit(t && !truckNumbers.includes(t))
@@ -384,7 +394,7 @@ export default function Home() {
   function openInspForm(arrival) {
     setAddingInspTo(arrival.id)
     setInspVendor(arrival.vendor_name)
-    setInspIsNewVendor(!VENDORS.includes(arrival.vendor_name))
+    setInspIsNewVendor(!vendorList.includes(arrival.vendor_name))
     setInspAt(nowLocal())
     setInspDirection('')
     setInspVendorType('')
@@ -541,7 +551,7 @@ export default function Home() {
                   required
                 >
                   <option value="">-- Select vendor --</option>
-                  {VENDORS.map(v => <option key={v} value={v}>{v}</option>)}
+                  {vendorList.map(v => <option key={v} value={v}>{v}</option>)}
                   <option value="__new__">+ New vendor...</option>
                 </select>
               )}
@@ -668,7 +678,7 @@ export default function Home() {
                               onChange={e => { if (e.target.value === '__new__') { setIsNewVendorEdit(true); setEditVendor('') } else setEditVendor(e.target.value) }}
                               className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required>
                               <option value="">-- Select --</option>
-                              {VENDORS.map(v => <option key={v} value={v}>{v}</option>)}
+                              {vendorList.map(v => <option key={v} value={v}>{v}</option>)}
                               <option value="__new__">+ New vendor...</option>
                             </select>
                           )}
@@ -900,7 +910,7 @@ export default function Home() {
                                   onChange={e => { if (e.target.value === '__new__') { setInspIsNewVendor(true); setInspVendor('') } else setInspVendor(e.target.value) }}
                                   className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required>
                                   <option value="">-- Select --</option>
-                                  {VENDORS.map(v => <option key={v} value={v}>{v}</option>)}
+                                  {vendorList.map(v => <option key={v} value={v}>{v}</option>)}
                                   <option value="__new__">+ New vendor...</option>
                                 </select>
                               )}
