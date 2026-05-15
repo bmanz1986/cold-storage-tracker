@@ -148,6 +148,7 @@ export default function ReportsPage() {
           <button onClick={() => window.print()} className="text-sm text-gray-600 hover:underline">
             Print / Save PDF
           </button>
+          <Link href="/inspections" className="text-sm text-gray-600 hover:underline">Inspection Log</Link>
           <Link href="/" className="text-sm text-blue-600 hover:underline">← Dashboard</Link>
         </div>
       </header>
