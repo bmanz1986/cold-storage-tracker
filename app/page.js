@@ -28,6 +28,26 @@ const TASK_TYPES = [
   'Other',
 ]
 
+const TRUCK_NCS = [
+  'Debris or Foreign Material',
+  'Spilled Products',
+  'Odor or Off Aroma',
+  'Water or Condensation',
+  'Chemical Contamination',
+  'Evidence of Pest Issues',
+  'Damage/Holes to exterior or interior',
+]
+
+const PALLET_NCS = [
+  'Broken Pallet / Wood Debris',
+  'Evidence of prior spills',
+  'Odor or Off Aroma',
+  'Incorrect Product',
+  'Crushed or Damaged Cases',
+  'Evidence of Pest Issue',
+  'Damage to or unreadable product labels',
+]
+
 function nowLocal() {
   const now = new Date()
   const y = now.getFullYear()
@@ -112,9 +132,9 @@ export default function Home() {
   const [inspFrozenActual, setInspFrozenActual] = useState('')
   const [inspRefrigActual, setInspRefrigActual] = useState('')
   const [inspTempOk, setInspTempOk] = useState('')
-  const [inspTruckOk, setInspTruckOk] = useState('true')
+  const [inspTruckNCs, setInspTruckNCs] = useState([])
   const [inspTruckNcNotes, setInspTruckNcNotes] = useState('')
-  const [inspPalletOk, setInspPalletOk] = useState('true')
+  const [inspPalletNCs, setInspPalletNCs] = useState([])
   const [inspPalletNcNotes, setInspPalletNcNotes] = useState('')
   const [inspPalletType, setInspPalletType] = useState('')
 
@@ -384,9 +404,9 @@ export default function Home() {
     setInspFrozenActual('')
     setInspRefrigActual('')
     setInspTempOk('')
-    setInspTruckOk('true')
+    setInspTruckNCs([])
     setInspTruckNcNotes('')
-    setInspPalletOk('true')
+    setInspPalletNCs([])
     setInspPalletNcNotes('')
     setInspPalletType('')
   }
@@ -411,9 +431,9 @@ export default function Home() {
     setInspFrozenActual('')
     setInspRefrigActual('')
     setInspTempOk('')
-    setInspTruckOk('true')
+    setInspTruckNCs([])
     setInspTruckNcNotes('')
-    setInspPalletOk('true')
+    setInspPalletNCs([])
     setInspPalletNcNotes('')
     setInspPalletType('')
     setInspMessage(null)
@@ -444,10 +464,14 @@ export default function Home() {
       frozen_actual: inspFrozenActual ? parseFloat(inspFrozenActual) : null,
       refrigerated_actual: inspRefrigActual ? parseFloat(inspRefrigActual) : null,
       temperature_acceptable: toBool(inspTempOk),
-      truck_inspection_ok: toBool(inspTruckOk),
-      truck_nc_notes: inspTruckNcNotes || null,
-      pallet_inspection_ok: toBool(inspPalletOk),
-      pallet_nc_notes: inspPalletNcNotes || null,
+      truck_inspection_ok: inspTruckNCs.length === 0,
+      truck_nc_notes: inspTruckNCs.length > 0
+        ? [inspTruckNCs.join(', '), inspTruckNcNotes].filter(Boolean).join('\n')
+        : null,
+      pallet_inspection_ok: inspPalletNCs.length === 0,
+      pallet_nc_notes: inspPalletNCs.length > 0
+        ? [inspPalletNCs.join(', '), inspPalletNcNotes].filter(Boolean).join('\n')
+        : null,
       pallet_type: inspPalletType || null,
     })
     if (error) {
@@ -1040,40 +1064,54 @@ export default function Home() {
                             </div>
                           )}
                           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide border-t border-green-200 pt-2">Inspection Results</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">Truck Inspection</label>
-                              <select value={inspTruckOk} onChange={e => setInspTruckOk(e.target.value)}
-                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="true">No NC Identified</option>
-                                <option value="false">NC Found</option>
-                              </select>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Truck Inspection
+                              {inspTruckNCs.length === 0
+                                ? <span className="ml-2 text-green-600 font-medium">✓ No NC</span>
+                                : <span className="ml-2 text-red-500 font-medium">NC Found</span>
+                              }
+                            </label>
+                            <div className="grid grid-cols-2 gap-x-3 gap-y-1 mb-1">
+                              {TRUCK_NCS.map(nc => (
+                                <label key={nc} className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                                  <input type="checkbox" checked={inspTruckNCs.includes(nc)}
+                                    onChange={() => setInspTruckNCs(prev => prev.includes(nc) ? prev.filter(v => v !== nc) : [...prev, nc])}
+                                    className="rounded border-gray-300 accent-red-500" />
+                                  {nc}
+                                </label>
+                              ))}
                             </div>
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">Pallet Inspection</label>
-                              <select value={inspPalletOk} onChange={e => setInspPalletOk(e.target.value)}
-                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="true">No NC Identified</option>
-                                <option value="false">NC Found</option>
-                              </select>
-                            </div>
-                          </div>
-                          {inspTruckOk === 'false' && (
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">Truck NC Notes</label>
+                            {inspTruckNCs.length > 0 && (
                               <textarea value={inspTruckNcNotes} onChange={e => setInspTruckNcNotes(e.target.value)}
-                                placeholder="Describe the non-conformance…" rows={2}
+                                placeholder="Additional notes…" rows={1}
                                 className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                            )}
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                              Pallet Inspection
+                              {inspPalletNCs.length === 0
+                                ? <span className="ml-2 text-green-600 font-medium">✓ No NC</span>
+                                : <span className="ml-2 text-red-500 font-medium">NC Found</span>
+                              }
+                            </label>
+                            <div className="grid grid-cols-2 gap-x-3 gap-y-1 mb-1">
+                              {PALLET_NCS.map(nc => (
+                                <label key={nc} className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                                  <input type="checkbox" checked={inspPalletNCs.includes(nc)}
+                                    onChange={() => setInspPalletNCs(prev => prev.includes(nc) ? prev.filter(v => v !== nc) : [...prev, nc])}
+                                    className="rounded border-gray-300 accent-red-500" />
+                                  {nc}
+                                </label>
+                              ))}
                             </div>
-                          )}
-                          {inspPalletOk === 'false' && (
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">Pallet NC Notes</label>
+                            {inspPalletNCs.length > 0 && (
                               <textarea value={inspPalletNcNotes} onChange={e => setInspPalletNcNotes(e.target.value)}
-                                placeholder="Describe the non-conformance…" rows={2}
+                                placeholder="Additional notes…" rows={1}
                                 className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                            </div>
-                          )}
+                            )}
+                          </div>
                           <div>
                             <label className="block text-xs font-medium text-gray-600 mb-1">Pallet Type</label>
                             <input type="text" value={inspPalletType} onChange={e => setInspPalletType(e.target.value)}
