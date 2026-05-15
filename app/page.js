@@ -89,7 +89,8 @@ export default function Home() {
 
   const [clearing, setClearing] = useState(null)
 
-  const [showInspForm, setShowInspForm] = useState(false)
+  const [inspections, setInspections] = useState({})
+  const [addingInspTo, setAddingInspTo] = useState(null)
   const [inspSubmitting, setInspSubmitting] = useState(false)
   const [inspMessage, setInspMessage] = useState(null)
   const [inspDirection, setInspDirection] = useState('')
@@ -142,6 +143,22 @@ export default function Home() {
     }
   }, [])
 
+  const fetchInspections = useCallback(async () => {
+    const { data } = await supabase
+      .from('inspections')
+      .select('*')
+      .not('arrival_id', 'is', null)
+      .order('inspected_at', { ascending: true })
+    if (data) {
+      const byArrival = {}
+      data.forEach(insp => {
+        if (!byArrival[insp.arrival_id]) byArrival[insp.arrival_id] = []
+        byArrival[insp.arrival_id].push(insp)
+      })
+      setInspections(byArrival)
+    }
+  }, [])
+
   const fetchDoorStatus = useCallback(async () => {
     const { data } = await supabase
       .from('arrivals')
@@ -167,12 +184,13 @@ export default function Home() {
         fetchArrivals()
         fetchDoorStatus()
         fetchTasks()
+        fetchInspections()
         supabase.from('arrivals').select('truck_number').then(({ data }) => {
           if (data) setTruckNumbers([...new Set(data.map(r => r.truck_number).filter(Boolean))].sort())
         })
       }
     })
-  }, [router, fetchArrivals, fetchDoorStatus, fetchTasks])
+  }, [router, fetchArrivals, fetchDoorStatus, fetchTasks, fetchInspections])
 
   useEffect(() => {
     if (!user) return
@@ -183,9 +201,10 @@ export default function Home() {
         fetchDoorStatus()
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, fetchTasks)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'inspections' }, fetchInspections)
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [user, fetchArrivals, fetchDoorStatus, fetchTasks])
+  }, [user, fetchArrivals, fetchDoorStatus, fetchTasks, fetchInspections])
 
   async function handleArrivalSubmit(e) {
     e.preventDefault()
@@ -362,12 +381,41 @@ export default function Home() {
     setInspPalletType('')
   }
 
+  function openInspForm(arrival) {
+    setAddingInspTo(arrival.id)
+    setInspVendor(arrival.vendor_name)
+    setInspIsNewVendor(!VENDORS.includes(arrival.vendor_name))
+    setInspAt(nowLocal())
+    setInspDirection('')
+    setInspVendorType('')
+    setInspInspectorName('')
+    setInspTeam('')
+    setInspCarrier('')
+    setInspOrderPo(arrival.po_number || '')
+    setInspBolIncluded('')
+    setInspLockedSealed('')
+    setInspSealNum('')
+    setInspSealMatches('')
+    setInspTempRequired('')
+    setInspSetPoint('')
+    setInspFrozenActual('')
+    setInspRefrigActual('')
+    setInspTempOk('')
+    setInspTruckOk('true')
+    setInspTruckNcNotes('')
+    setInspPalletOk('true')
+    setInspPalletNcNotes('')
+    setInspPalletType('')
+    setInspMessage(null)
+  }
+
   async function handleInspSubmit(e) {
     e.preventDefault()
     setInspSubmitting(true)
     setInspMessage(null)
     const toBool = v => v === 'true' ? true : v === 'false' ? false : null
     const { error } = await supabase.from('inspections').insert({
+      arrival_id: addingInspTo,
       inspected_by: user.id,
       inspector_name: inspInspectorName || null,
       team: inspTeam || null,
@@ -395,9 +443,9 @@ export default function Home() {
     if (error) {
       setInspMessage({ type: 'error', text: 'Error: ' + error.message })
     } else {
-      setInspMessage({ type: 'success', text: 'Inspection logged!' })
       resetInspForm()
-      setTimeout(() => { setShowInspForm(false); setInspMessage(null) }, 1500)
+      setAddingInspTo(null)
+      fetchInspections()
     }
     setInspSubmitting(false)
   }
@@ -584,272 +632,6 @@ export default function Home() {
           </form>
         </div>
 
-        {/* Log Inspection Form */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-gray-800">Log Inspection</h2>
-            {!showInspForm && (
-              <button
-                onClick={() => { setShowInspForm(true); setInspAt(nowLocal()) }}
-                className="bg-green-600 text-white px-4 py-1.5 rounded-md text-sm font-medium hover:bg-green-700 transition-colors"
-              >
-                + New Inspection
-              </button>
-            )}
-          </div>
-
-          {showInspForm && (
-            <form onSubmit={handleInspSubmit} className="mt-4 space-y-4">
-
-              {/* Direction + Vendor Type */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Direction <span className="text-red-500">*</span>
-                  </label>
-                  <select value={inspDirection} onChange={e => setInspDirection(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-                    <option value="">-- Select --</option>
-                    <option value="Inbound">Inbound</option>
-                    <option value="Outbound">Outbound</option>
-                    <option value="Both">Both</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Vendor Type</label>
-                  <select value={inspVendorType} onChange={e => setInspVendorType(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">-- Select --</option>
-                    <option value="Cold Storage">Cold Storage</option>
-                    <option value="Walden">Walden</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Vendor */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Vendor <span className="text-red-500">*</span>
-                </label>
-                {inspIsNewVendor ? (
-                  <div className="flex gap-2">
-                    <input type="text" value={inspVendor} onChange={e => setInspVendor(e.target.value)}
-                      placeholder="Enter vendor name"
-                      className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
-                    <button type="button" onClick={() => { setInspIsNewVendor(false); setInspVendor('') }}
-                      className="text-gray-400 hover:text-gray-600 px-2">✕</button>
-                  </div>
-                ) : (
-                  <select value={inspVendor}
-                    onChange={e => { if (e.target.value === '__new__') { setInspIsNewVendor(true); setInspVendor('') } else setInspVendor(e.target.value) }}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-                    <option value="">-- Select vendor --</option>
-                    {VENDORS.map(v => <option key={v} value={v}>{v}</option>)}
-                    <option value="__new__">+ New vendor...</option>
-                  </select>
-                )}
-              </div>
-
-              {/* Inspector + Team */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Inspector Name</label>
-                  <input type="text" value={inspInspectorName} onChange={e => setInspInspectorName(e.target.value)}
-                    placeholder="e.g. Kerwin"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Team</label>
-                  <select value={inspTeam} onChange={e => setInspTeam(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">-- Select --</option>
-                    <option value="Cold Storage">Cold Storage</option>
-                    <option value="Logistics">Logistics</option>
-                    <option value="Walden Inventory">Walden Inventory</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Carrier + Order/PO */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Carrier <span className="text-gray-400 font-normal">(optional)</span></label>
-                  <input type="text" value={inspCarrier} onChange={e => setInspCarrier(e.target.value)}
-                    placeholder="e.g. FedEx"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Order / PO <span className="text-gray-400 font-normal">(optional)</span></label>
-                  <input type="text" value={inspOrderPo} onChange={e => setInspOrderPo(e.target.value)}
-                    placeholder="e.g. PO-1234"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-              </div>
-
-              {/* Inspection Time */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Inspection Time</label>
-                <input type="datetime-local" value={inspAt} onChange={e => setInspAt(e.target.value)}
-                  onFocus={() => { if (!inspAt) setInspAt(nowLocal()) }}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-
-              {/* BOL & Sealing */}
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide border-t border-gray-100 pt-3">BOL &amp; Sealing</p>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">BOL Included</label>
-                  <select value={inspBolIncluded} onChange={e => setInspBolIncluded(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">-- Select --</option>
-                    <option value="true">Yes</option>
-                    <option value="false">No</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Locked / Sealed</label>
-                  <select value={inspLockedSealed} onChange={e => setInspLockedSealed(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">-- Select --</option>
-                    <option value="Locked - LTL or Walden Shipment">Locked - LTL or Walden</option>
-                    <option value="Sealed - third party">Sealed - third party</option>
-                    <option value="N/A - Open/Unsealed">N/A - Open/Unsealed</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Seal # <span className="text-gray-400 font-normal">(optional)</span></label>
-                  <input type="text" value={inspSealNum} onChange={e => setInspSealNum(e.target.value)}
-                    placeholder="Seal number"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Seal Matches Paperwork</label>
-                  <select value={inspSealMatches} onChange={e => setInspSealMatches(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">-- Select --</option>
-                    <option value="true">Yes</option>
-                    <option value="false">No</option>
-                    <option value="na">N/A</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Temperature */}
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide border-t border-gray-100 pt-3">Temperature</p>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Temp Required</label>
-                  <select value={inspTempRequired} onChange={e => setInspTempRequired(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">-- Select --</option>
-                    <option value="Frozen">Frozen</option>
-                    <option value="Refrigerated">Refrigerated</option>
-                    <option value="Ambient">Ambient</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Set Point <span className="text-gray-400 font-normal">°F</span></label>
-                  <input type="number" value={inspSetPoint} onChange={e => setInspSetPoint(e.target.value)}
-                    placeholder="e.g. 0"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-              </div>
-
-              {inspTempRequired !== 'Ambient' && (
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Frozen Actual <span className="text-gray-400 font-normal">°F</span></label>
-                    <input type="number" value={inspFrozenActual} onChange={e => setInspFrozenActual(e.target.value)}
-                      placeholder="e.g. -10"
-                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Refrig. Actual <span className="text-gray-400 font-normal">°F</span></label>
-                    <input type="number" value={inspRefrigActual} onChange={e => setInspRefrigActual(e.target.value)}
-                      placeholder="e.g. 34"
-                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Temp Acceptable</label>
-                    <select value={inspTempOk} onChange={e => setInspTempOk(e.target.value)}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                      <option value="">-- Select --</option>
-                      <option value="true">Yes</option>
-                      <option value="false">No</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {/* Inspection Results */}
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide border-t border-gray-100 pt-3">Inspection Results</p>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Truck Inspection</label>
-                <select value={inspTruckOk} onChange={e => setInspTruckOk(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="true">No Non-Conformances Identified</option>
-                  <option value="false">Non-Conformance Found</option>
-                </select>
-              </div>
-              {inspTruckOk === 'false' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Truck NC Notes</label>
-                  <textarea value={inspTruckNcNotes} onChange={e => setInspTruckNcNotes(e.target.value)}
-                    placeholder="Describe the non-conformance…" rows={2}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Pallet Inspection</label>
-                <select value={inspPalletOk} onChange={e => setInspPalletOk(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="true">No Non-Conformances Identified</option>
-                  <option value="false">Non-Conformance Found</option>
-                </select>
-              </div>
-              {inspPalletOk === 'false' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Pallet NC Notes</label>
-                  <textarea value={inspPalletNcNotes} onChange={e => setInspPalletNcNotes(e.target.value)}
-                    placeholder="Describe the non-conformance…" rows={2}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Pallet Type <span className="text-gray-400 font-normal">(optional)</span></label>
-                <input type="text" value={inspPalletType} onChange={e => setInspPalletType(e.target.value)}
-                  placeholder="e.g. No Double Pallet Beams"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-
-              {inspMessage && (
-                <p className={`text-sm ${inspMessage.type === 'error' ? 'text-red-500' : 'text-green-600'}`}>
-                  {inspMessage.text}
-                </p>
-              )}
-
-              <div className="flex gap-3 pt-1">
-                <button type="submit" disabled={inspSubmitting}
-                  className="flex-1 bg-green-600 text-white py-2 rounded-md font-medium hover:bg-green-700 disabled:opacity-50 transition-colors">
-                  {inspSubmitting ? 'Saving…' : 'Log Inspection'}
-                </button>
-                <button type="button" onClick={() => { setShowInspForm(false); resetInspForm(); setInspMessage(null) }}
-                  className="px-4 py-2 text-gray-600 rounded-md hover:bg-gray-100 transition-colors">
-                  Cancel
-                </button>
-              </div>
-            </form>
-          )}
-        </div>
-
         {/* Recent Arrivals with Tasks */}
         <div className="bg-white rounded-lg shadow-sm p-6">
           <div className="flex justify-between items-center mb-4">
@@ -943,7 +725,13 @@ export default function Home() {
                     <>
                       <div className="flex justify-between items-start gap-4 mb-2">
                         <div>
-                          <p className="font-medium text-gray-800">{a.vendor_name}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium text-gray-800">{a.vendor_name}</p>
+                            {inspections[a.id]?.length > 0
+                              ? <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Inspected</span>
+                              : <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-medium">Needs Inspection</span>
+                            }
+                          </div>
                           <p className="text-sm text-gray-500">
                             Truck: {a.truck_number || a.truck_po}
                             {a.po_number ? ` · PO: ${a.po_number}` : ''}
@@ -963,6 +751,26 @@ export default function Home() {
                           </>}
                         </div>
                       </div>
+
+                      {inspections[a.id]?.length > 0 && (
+                        <ul className="ml-3 mb-2 space-y-1 border-l-2 border-green-200 pl-3">
+                          {inspections[a.id].map(insp => {
+                            const hasNC = insp.truck_inspection_ok === false || insp.pallet_inspection_ok === false
+                            return (
+                              <li key={insp.id} className="text-xs text-gray-500">
+                                <span className="flex items-center gap-1 flex-wrap">
+                                  <span className={`font-medium ${hasNC ? 'text-red-600' : 'text-green-700'}`}>Inspection</span>
+                                  <span>· {insp.direction}</span>
+                                  {insp.inspector_name && <span>· {insp.inspector_name}</span>}
+                                  <span>· {new Date(insp.inspected_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                  <span>· Truck {insp.truck_inspection_ok === false ? <span className="text-red-500 font-medium">NC</span> : <span className="text-green-600">✓</span>}</span>
+                                  <span>· Pallet {insp.pallet_inspection_ok === false ? <span className="text-red-500 font-medium">NC</span> : <span className="text-green-600">✓</span>}</span>
+                                </span>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
 
                       {tasks[a.id] && tasks[a.id].length > 0 && (
                         <ul className="ml-3 mb-2 space-y-1 border-l-2 border-gray-100 pl-3">
@@ -1056,13 +864,239 @@ export default function Home() {
                             </button>
                           </div>
                         </form>
+                      ) : addingInspTo === a.id ? (
+                        <form onSubmit={handleInspSubmit} className="mt-2 bg-green-50 border border-green-100 rounded-md p-3 space-y-3">
+                          <p className="text-xs font-semibold text-green-800">Log Inspection</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Direction <span className="text-red-500">*</span></label>
+                              <select value={inspDirection} onChange={e => setInspDirection(e.target.value)}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                                <option value="">-- Select --</option>
+                                <option value="Inbound">Inbound</option>
+                                <option value="Outbound">Outbound</option>
+                                <option value="Both">Both</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Inspection Time</label>
+                              <input type="datetime-local" value={inspAt} onChange={e => setInspAt(e.target.value)}
+                                onFocus={() => { if (!inspAt) setInspAt(nowLocal()) }}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Vendor</label>
+                              {inspIsNewVendor ? (
+                                <div className="flex gap-1">
+                                  <input type="text" value={inspVendor} onChange={e => setInspVendor(e.target.value)}
+                                    className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                                  <button type="button" onClick={() => { setInspIsNewVendor(false); setInspVendor('') }}
+                                    className="text-gray-400 hover:text-gray-600 px-1">✕</button>
+                                </div>
+                              ) : (
+                                <select value={inspVendor}
+                                  onChange={e => { if (e.target.value === '__new__') { setInspIsNewVendor(true); setInspVendor('') } else setInspVendor(e.target.value) }}
+                                  className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                                  <option value="">-- Select --</option>
+                                  {VENDORS.map(v => <option key={v} value={v}>{v}</option>)}
+                                  <option value="__new__">+ New vendor...</option>
+                                </select>
+                              )}
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Vendor Type</label>
+                              <select value={inspVendorType} onChange={e => setInspVendorType(e.target.value)}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">-- Select --</option>
+                                <option value="Cold Storage">Cold Storage</option>
+                                <option value="Walden">Walden</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Inspector Name</label>
+                              <input type="text" value={inspInspectorName} onChange={e => setInspInspectorName(e.target.value)}
+                                placeholder="e.g. Kerwin"
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Team</label>
+                              <select value={inspTeam} onChange={e => setInspTeam(e.target.value)}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">-- Select --</option>
+                                <option value="Cold Storage">Cold Storage</option>
+                                <option value="Logistics">Logistics</option>
+                                <option value="Walden Inventory">Walden Inventory</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Carrier</label>
+                              <input type="text" value={inspCarrier} onChange={e => setInspCarrier(e.target.value)}
+                                placeholder="e.g. FedEx"
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Order / PO</label>
+                              <input type="text" value={inspOrderPo} onChange={e => setInspOrderPo(e.target.value)}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                            </div>
+                          </div>
+                          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide border-t border-green-200 pt-2">BOL &amp; Sealing</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">BOL Included</label>
+                              <select value={inspBolIncluded} onChange={e => setInspBolIncluded(e.target.value)}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">-- Select --</option>
+                                <option value="true">Yes</option>
+                                <option value="false">No</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Locked / Sealed</label>
+                              <select value={inspLockedSealed} onChange={e => setInspLockedSealed(e.target.value)}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">-- Select --</option>
+                                <option value="Locked - LTL or Walden Shipment">Locked - LTL or Walden</option>
+                                <option value="Sealed - third party">Sealed - third party</option>
+                                <option value="N/A - Open/Unsealed">N/A - Open/Unsealed</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Seal #</label>
+                              <input type="text" value={inspSealNum} onChange={e => setInspSealNum(e.target.value)}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Seal Matches Paperwork</label>
+                              <select value={inspSealMatches} onChange={e => setInspSealMatches(e.target.value)}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">-- Select --</option>
+                                <option value="true">Yes</option>
+                                <option value="false">No</option>
+                                <option value="na">N/A</option>
+                              </select>
+                            </div>
+                          </div>
+                          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide border-t border-green-200 pt-2">Temperature</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Temp Required</label>
+                              <select value={inspTempRequired} onChange={e => setInspTempRequired(e.target.value)}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">-- Select --</option>
+                                <option value="Frozen">Frozen</option>
+                                <option value="Refrigerated">Refrigerated</option>
+                                <option value="Ambient">Ambient</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Set Point °F</label>
+                              <input type="number" value={inspSetPoint} onChange={e => setInspSetPoint(e.target.value)}
+                                placeholder="e.g. 0"
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                            </div>
+                          </div>
+                          {inspTempRequired !== 'Ambient' && (
+                            <div className="grid grid-cols-3 gap-3">
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">Frozen Actual °F</label>
+                                <input type="number" value={inspFrozenActual} onChange={e => setInspFrozenActual(e.target.value)}
+                                  placeholder="-10"
+                                  className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">Refrig. Actual °F</label>
+                                <input type="number" value={inspRefrigActual} onChange={e => setInspRefrigActual(e.target.value)}
+                                  placeholder="34"
+                                  className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">Temp Acceptable</label>
+                                <select value={inspTempOk} onChange={e => setInspTempOk(e.target.value)}
+                                  className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                  <option value="">--</option>
+                                  <option value="true">Yes</option>
+                                  <option value="false">No</option>
+                                </select>
+                              </div>
+                            </div>
+                          )}
+                          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide border-t border-green-200 pt-2">Inspection Results</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Truck Inspection</label>
+                              <select value={inspTruckOk} onChange={e => setInspTruckOk(e.target.value)}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="true">No NC Identified</option>
+                                <option value="false">NC Found</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Pallet Inspection</label>
+                              <select value={inspPalletOk} onChange={e => setInspPalletOk(e.target.value)}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="true">No NC Identified</option>
+                                <option value="false">NC Found</option>
+                              </select>
+                            </div>
+                          </div>
+                          {inspTruckOk === 'false' && (
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Truck NC Notes</label>
+                              <textarea value={inspTruckNcNotes} onChange={e => setInspTruckNcNotes(e.target.value)}
+                                placeholder="Describe the non-conformance…" rows={2}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                            </div>
+                          )}
+                          {inspPalletOk === 'false' && (
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Pallet NC Notes</label>
+                              <textarea value={inspPalletNcNotes} onChange={e => setInspPalletNcNotes(e.target.value)}
+                                placeholder="Describe the non-conformance…" rows={2}
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                            </div>
+                          )}
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Pallet Type</label>
+                            <input type="text" value={inspPalletType} onChange={e => setInspPalletType(e.target.value)}
+                              placeholder="e.g. No Double Pallet Beams"
+                              className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                          </div>
+                          {inspMessage && (
+                            <p className={`text-sm ${inspMessage.type === 'error' ? 'text-red-500' : 'text-green-600'}`}>{inspMessage.text}</p>
+                          )}
+                          <div className="flex gap-2">
+                            <button type="submit" disabled={inspSubmitting}
+                              className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 disabled:opacity-50">
+                              {inspSubmitting ? 'Saving…' : 'Save Inspection'}
+                            </button>
+                            <button type="button" onClick={() => { setAddingInspTo(null); setInspMessage(null) }}
+                              className="text-gray-500 px-3 py-1 rounded text-sm hover:bg-gray-100">Cancel</button>
+                          </div>
+                        </form>
                       ) : (
-                        <button
-                          onClick={() => openTaskForm(a.id)}
-                          className="mt-1 text-xs text-blue-600 hover:underline"
-                        >
-                          + Add Task
-                        </button>
+                        <div className="mt-1 flex gap-4">
+                          <button
+                            onClick={() => openTaskForm(a.id)}
+                            className="text-xs text-blue-600 hover:underline"
+                          >
+                            + Add Task
+                          </button>
+                          <button
+                            onClick={() => openInspForm(a)}
+                            className="text-xs text-green-600 hover:underline"
+                          >
+                            + Log Inspection
+                          </button>
+                        </div>
                       )}
                     </>
                   )}
