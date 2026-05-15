@@ -57,6 +57,7 @@ export default function Home() {
   const [search, setSearch] = useState('')
 
   const [vendorName, setVendorName] = useState('')
+  const [isNewVendor, setIsNewVendor] = useState(false)
   const [truckNumber, setTruckNumber] = useState('')
   const [isNewTruck, setIsNewTruck] = useState(false)
   const [poNumber, setPoNumber] = useState('')
@@ -69,6 +70,7 @@ export default function Home() {
 
   const [editingArrival, setEditingArrival] = useState(null)
   const [editVendor, setEditVendor] = useState('')
+  const [isNewVendorEdit, setIsNewVendorEdit] = useState(false)
   const [editTruckNum, setEditTruckNum] = useState('')
   const [isNewTruckEdit, setIsNewTruckEdit] = useState(false)
   const [editPoNum, setEditPoNum] = useState('')
@@ -176,6 +178,7 @@ export default function Home() {
     } else {
       setArrivalMessage({ type: 'success', text: 'Arrival logged!' })
       setVendorName('')
+      setIsNewVendor(false)
       setTruckNumber('')
       setIsNewTruck(false)
       setPoNumber('')
@@ -191,6 +194,7 @@ export default function Home() {
   function openEditArrival(a) {
     setEditingArrival(a.id)
     setEditVendor(a.vendor_name)
+    setIsNewVendorEdit(!VENDORS.includes(a.vendor_name))
     const t = a.truck_number || a.truck_po || ''
     setEditTruckNum(t)
     setIsNewTruckEdit(t && !truckNumbers.includes(t))
@@ -373,15 +377,31 @@ export default function Home() {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Vendor <span className="text-red-500">*</span>
               </label>
-              <select
-                value={vendorName}
-                onChange={e => setVendorName(e.target.value)}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              >
-                <option value="">-- Select vendor --</option>
-                {VENDORS.map(v => <option key={v} value={v}>{v}</option>)}
-              </select>
+              {isNewVendor ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={vendorName}
+                    onChange={e => setVendorName(e.target.value)}
+                    placeholder="Enter vendor name"
+                    className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                  <button type="button" onClick={() => { setIsNewVendor(false); setVendorName('') }}
+                    className="text-gray-400 hover:text-gray-600 px-2">✕</button>
+                </div>
+              ) : (
+                <select
+                  value={vendorName}
+                  onChange={e => { if (e.target.value === '__new__') { setIsNewVendor(true); setVendorName('') } else setVendorName(e.target.value) }}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                >
+                  <option value="">-- Select vendor --</option>
+                  {VENDORS.map(v => <option key={v} value={v}>{v}</option>)}
+                  <option value="__new__">+ New vendor...</option>
+                </select>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -492,11 +512,23 @@ export default function Home() {
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Vendor</label>
-                          <select value={editVendor} onChange={e => setEditVendor(e.target.value)}
-                            className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-                            <option value="">-- Select --</option>
-                            {VENDORS.map(v => <option key={v} value={v}>{v}</option>)}
-                          </select>
+                          {isNewVendorEdit ? (
+                            <div className="flex gap-1">
+                              <input type="text" value={editVendor} onChange={e => setEditVendor(e.target.value)}
+                                placeholder="Enter vendor name"
+                                className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                              <button type="button" onClick={() => { setIsNewVendorEdit(false); setEditVendor('') }}
+                                className="text-gray-400 hover:text-gray-600 px-1">✕</button>
+                            </div>
+                          ) : (
+                            <select value={editVendor}
+                              onChange={e => { if (e.target.value === '__new__') { setIsNewVendorEdit(true); setEditVendor('') } else setEditVendor(e.target.value) }}
+                              className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                              <option value="">-- Select --</option>
+                              {VENDORS.map(v => <option key={v} value={v}>{v}</option>)}
+                              <option value="__new__">+ New vendor...</option>
+                            </select>
+                          )}
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Truck #</label>
