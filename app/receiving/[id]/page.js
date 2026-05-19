@@ -83,7 +83,7 @@ export default function ReceivingDetailPage() {
       } else {
         setUser(session.user)
         fetchLog()
-        supabase.from('team_members').select('display_name').eq('active', true).order('display_name')
+        supabase.from('team_members').select('display_name').eq('active', true).eq('show_in_ops', true).order('display_name')
           .then(({ data }) => { if (data) setTeamMembers(data.map(r => r.display_name)) })
       }
     })
