@@ -158,7 +158,7 @@ export default function ReceivingDetailPage() {
   async function addItem(e) {
     e.preventDefault()
     setSavingItem(true)
-    const { error } = await supabase.from('receiving_items').insert({
+    const { data: newItem, error } = await supabase.from('receiving_items').insert({
       receiving_log_id: id,
       upc: newUpc || null,
       description: newDesc || null,
@@ -167,12 +167,18 @@ export default function ReceivingDetailPage() {
       code_date: newCodeDate || null,
       weight_per_pallet: newWeight || null,
       location: newLocation || null,
-    })
+    }).select().single()
     if (!error) {
       setAddingItem(false)
       setNewUpc(''); setNewDesc(''); setNewPallets(''); setNewCases('')
       setNewCodeDate(''); setNewWeight(''); setNewLocation('')
       fetchLog()
+      // Sync to Google Sheets lot book in the background — failure won't block saving
+      fetch('/api/lot-book', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item: newItem, log }),
+      }).catch(() => {})
     } else alert('Could not add item: ' + error.message)
     setSavingItem(false)
   }
