@@ -500,6 +500,7 @@ export default function Home() {
           <span className="text-sm text-gray-500 hidden sm:block">{user.email}</span>
           {isAdmin && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Admin</span>}
           <Link href="/inspections" className="text-sm text-blue-600 hover:underline">Inspections</Link>
+          <Link href="/receiving" className="text-sm text-blue-600 hover:underline">Receiving</Link>
           <Link href="/reports" className="text-sm text-blue-600 hover:underline">Reports</Link>
           <button onClick={handleSignOut} className="text-sm text-red-600 hover:underline">
             Switch User
@@ -1144,6 +1145,12 @@ export default function Home() {
                           >
                             + Log Inspection
                           </button>
+                          <Link
+                            href={`/receiving/new?arrival=${a.id}&vendor=${encodeURIComponent(a.vendor_name)}`}
+                            className="text-xs text-orange-600 hover:underline"
+                          >
+                            + Start Receiving Log
+                          </Link>
                         </div>
                       )}
                     </>
