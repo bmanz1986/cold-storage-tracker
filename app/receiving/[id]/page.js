@@ -529,7 +529,8 @@ export default function ReceivingDetailPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Code Date</label>
-                  <input type="date" value={newCodeDate} onChange={e => setNewCodeDate(e.target.value)}
+                  <input type="text" value={newCodeDate} onChange={e => setNewCodeDate(e.target.value)}
+                    placeholder="e.g. 06127 or 11/15/26"
                     className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
@@ -590,7 +591,7 @@ export default function ReceivingDetailPage() {
                           {['description','upc','pallets','cases','code_date','weight_per_pallet','location'].map(field => (
                             <td key={field} className="py-2 pr-4">
                               <input
-                                type={field === 'pallets' || field === 'cases' ? 'number' : field === 'code_date' ? 'date' : 'text'}
+                                type={field === 'pallets' || field === 'cases' ? 'number' : 'text'}
                                 value={editItemData[field] || ''}
                                 onChange={e => setEditItemData(prev => ({ ...prev, [field]: e.target.value }))}
                                 className="w-full border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
