@@ -1,21 +1,23 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 
-function todayLocal() {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
+const FILE_TYPES = [
+  { value: 'bol', label: 'Bill of Lading' },
+  { value: 'invoice', label: 'Invoice' },
+  { value: 'vendor_sheet', label: 'Vendor Sheet' },
+  { value: 'other', label: 'Other' },
+]
 
 export default function ReceivingDetailPage() {
   const [user, setUser] = useState(null)
   const [log, setLog] = useState(null)
   const [items, setItems] = useState([])
+  const [attachments, setAttachments] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState(null)
 
   // Log-level edit state
   const [editingHeader, setEditingHeader] = useState(false)
@@ -46,7 +48,7 @@ export default function ReceivingDetailPage() {
   const [newLocation, setNewLocation] = useState('')
   const [savingItem, setSavingItem] = useState(false)
 
-  // Invoice-only edit (office staff shortcut)
+  // Invoice-only edit
   const [editingInvoice, setEditingInvoice] = useState(false)
   const [invoiceValue, setInvoiceValue] = useState('')
   const [savingInvoice, setSavingInvoice] = useState(false)
@@ -56,24 +58,31 @@ export default function ReceivingDetailPage() {
   const [editItemData, setEditItemData] = useState({})
   const [teamMembers, setTeamMembers] = useState([])
 
+  // Attachments
+  const [uploading, setUploading] = useState(false)
+  const [uploadType, setUploadType] = useState('bol')
+  const fileInputRef = useRef(null)
+
   const router = useRouter()
   const params = useParams()
   const id = params.id
 
   const fetchLog = useCallback(async () => {
     const { data: logData } = await supabase
-      .from('receiving_logs')
-      .select('*')
-      .eq('id', id)
-      .single()
+      .from('receiving_logs').select('*').eq('id', id).single()
     const { data: itemData } = await supabase
-      .from('receiving_items')
-      .select('*')
-      .eq('receiving_log_id', id)
+      .from('receiving_items').select('*').eq('receiving_log_id', id)
       .order('lot_number', { ascending: true })
     setLog(logData || null)
     setItems(itemData || [])
     setLoading(false)
+  }, [id])
+
+  const fetchAttachments = useCallback(async () => {
+    const { data } = await supabase
+      .from('receiving_attachments').select('*').eq('receiving_log_id', id)
+      .order('created_at', { ascending: true })
+    setAttachments(data || [])
   }, [id])
 
   useEffect(() => {
@@ -83,11 +92,13 @@ export default function ReceivingDetailPage() {
       } else {
         setUser(session.user)
         fetchLog()
-        supabase.from('team_members').select('display_name').eq('active', true).eq('show_in_ops', true).order('display_name')
+        fetchAttachments()
+        supabase.from('team_members').select('display_name')
+          .eq('active', true).eq('show_in_ops', true).order('display_name')
           .then(({ data }) => { if (data) setTeamMembers(data.map(r => r.display_name)) })
       }
     })
-  }, [router, fetchLog])
+  }, [router, fetchLog, fetchAttachments])
 
   function openHeaderEdit() {
     setEditVendor(log.vendor_name || '')
@@ -129,27 +140,18 @@ export default function ReceivingDetailPage() {
       written_up_by: editWrittenBy || null,
       status: editStatus,
     }).eq('id', id)
-    if (!error) {
-      setEditingHeader(false)
-      fetchLog()
-    } else {
-      alert('Could not save: ' + error.message)
-    }
+    if (!error) { setEditingHeader(false); fetchLog() }
+    else alert('Could not save: ' + error.message)
     setSaving(false)
   }
 
   async function saveInvoiceOnly(e) {
     e.preventDefault()
     setSavingInvoice(true)
-    const { error } = await supabase.from('receiving_logs').update({
-      invoice_number: invoiceValue || null,
-    }).eq('id', id)
-    if (!error) {
-      setEditingInvoice(false)
-      fetchLog()
-    } else {
-      alert('Could not save: ' + error.message)
-    }
+    const { error } = await supabase.from('receiving_logs')
+      .update({ invoice_number: invoiceValue || null }).eq('id', id)
+    if (!error) { setEditingInvoice(false); fetchLog() }
+    else alert('Could not save: ' + error.message)
     setSavingInvoice(false)
   }
 
@@ -171,9 +173,7 @@ export default function ReceivingDetailPage() {
       setNewUpc(''); setNewDesc(''); setNewPallets(''); setNewCases('')
       setNewCodeDate(''); setNewWeight(''); setNewLocation('')
       fetchLog()
-    } else {
-      alert('Could not add item: ' + error.message)
-    }
+    } else alert('Could not add item: ' + error.message)
     setSavingItem(false)
   }
 
@@ -201,18 +201,54 @@ export default function ReceivingDetailPage() {
       weight_per_pallet: d.weight_per_pallet || null,
       location: d.location || null,
     }).eq('id', itemId)
-    if (!error) {
-      setEditingItem(null)
-      fetchLog()
-    } else {
-      alert('Could not save: ' + error.message)
-    }
+    if (!error) { setEditingItem(null); fetchLog() }
+    else alert('Could not save: ' + error.message)
   }
 
   async function deleteItem(itemId) {
     if (!window.confirm('Delete this product line?')) return
     await supabase.from('receiving_items').delete().eq('id', itemId)
     fetchLog()
+  }
+
+  async function handleFileUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const filePath = `${id}/${Date.now()}_${safeName}`
+    const { error: uploadError } = await supabase.storage
+      .from('receiving-docs').upload(filePath, file)
+    if (uploadError) {
+      alert('Upload failed: ' + uploadError.message)
+      setUploading(false)
+      return
+    }
+    const { error: dbError } = await supabase.from('receiving_attachments').insert({
+      receiving_log_id: id,
+      file_name: file.name,
+      file_path: filePath,
+      file_type: uploadType,
+      uploaded_by: user.id,
+    })
+    if (dbError) alert('Could not save attachment record: ' + dbError.message)
+    else fetchAttachments()
+    e.target.value = ''
+    setUploading(false)
+  }
+
+  async function openAttachment(attachment) {
+    const { data, error } = await supabase.storage
+      .from('receiving-docs').createSignedUrl(attachment.file_path, 3600)
+    if (error) { alert('Could not open file: ' + error.message); return }
+    window.open(data.signedUrl, '_blank')
+  }
+
+  async function deleteAttachment(attachment) {
+    if (!window.confirm(`Delete "${attachment.file_name}"?`)) return
+    await supabase.storage.from('receiving-docs').remove([attachment.file_path])
+    await supabase.from('receiving_attachments').delete().eq('id', attachment.id)
+    fetchAttachments()
   }
 
   async function markComplete() {
@@ -228,6 +264,14 @@ export default function ReceivingDetailPage() {
   }
 
   const isAdmin = user?.user_metadata?.role === 'admin'
+  const boolDisplay = v => v === true ? 'Yes' : v === false ? 'No' : '—'
+  const typeLabel = v => FILE_TYPES.find(t => t.value === v)?.label || v
+  const typeBadgeColor = v => ({
+    bol: 'bg-blue-100 text-blue-700',
+    invoice: 'bg-green-100 text-green-700',
+    vendor_sheet: 'bg-purple-100 text-purple-700',
+    other: 'bg-gray-100 text-gray-600',
+  }[v] || 'bg-gray-100 text-gray-600')
 
   if (!user) return null
   if (loading) return (
@@ -241,10 +285,9 @@ export default function ReceivingDetailPage() {
     </div>
   )
 
-  const boolDisplay = v => v === true ? 'Yes' : v === false ? 'No' : '—'
-
   return (
     <div className="min-h-screen bg-gray-100">
+      {/* ── Screen header ── */}
       <header className="bg-white shadow-sm px-6 py-4 flex justify-between items-center print:hidden">
         <div className="flex items-center gap-4">
           <Link href="/receiving" className="text-gray-400 hover:text-gray-600 text-sm">← Receiving Log</Link>
@@ -262,23 +305,15 @@ export default function ReceivingDetailPage() {
             </button>
           )}
           {isAdmin && (
-            <button onClick={deleteLog}
-              className="text-sm text-red-500 hover:underline">
-              Delete
-            </button>
+            <button onClick={deleteLog} className="text-sm text-red-500 hover:underline">Delete</button>
           )}
           <button onClick={async () => { await supabase.auth.signOut(); router.push('/login') }}
             className="text-sm text-red-600 hover:underline">Switch User</button>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto p-6 space-y-6 print:p-2 print:space-y-4">
-
-        {/* Print header */}
-        <div className="hidden print:block text-center border-b pb-4 mb-4">
-          <h1 className="text-2xl font-bold">Receiving Log — {log.vendor_name}</h1>
-          <p className="text-gray-600">{log.received_date}</p>
-        </div>
+      {/* ── Screen content ── */}
+      <main className="max-w-4xl mx-auto p-6 space-y-6 print:hidden">
 
         {/* Shipment Info */}
         <div className="bg-white rounded-lg shadow-sm p-6">
@@ -383,19 +418,15 @@ export default function ReceivingDetailPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <h2 className="text-xl font-bold text-gray-800">{log.vendor_name}</h2>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      log.status === 'complete'
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-yellow-100 text-yellow-700'
+                      log.status === 'complete' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
                     }`}>
                       {log.status === 'complete' ? 'Complete' : 'Receiving'}
                     </span>
                   </div>
                   <p className="text-gray-500 text-sm mt-0.5">{log.received_date}</p>
                 </div>
-                <button onClick={openHeaderEdit}
-                  className="text-sm text-blue-600 hover:underline print:hidden">Edit</button>
+                <button onClick={openHeaderEdit} className="text-sm text-blue-600 hover:underline">Edit</button>
               </div>
-
               <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                 <div className="flex gap-2">
                   <span className="text-gray-500 w-28 shrink-0">Truck #</span>
@@ -416,16 +447,14 @@ export default function ReceivingDetailPage() {
                       <input type="text" value={invoiceValue} onChange={e => setInvoiceValue(e.target.value)}
                         placeholder="Invoice #"
                         className="border border-gray-300 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-32" />
-                      <button type="submit" disabled={savingInvoice}
-                        className="text-blue-600 text-sm hover:underline">{savingInvoice ? '…' : 'Save'}</button>
-                      <button type="button" onClick={() => setEditingInvoice(false)}
-                        className="text-gray-400 text-sm hover:underline">Cancel</button>
+                      <button type="submit" disabled={savingInvoice} className="text-blue-600 text-sm hover:underline">{savingInvoice ? '…' : 'Save'}</button>
+                      <button type="button" onClick={() => setEditingInvoice(false)} className="text-gray-400 text-sm hover:underline">Cancel</button>
                     </form>
                   ) : (
                     <span className="text-gray-800 font-medium flex items-center gap-2">
                       {log.invoice_number || <span className="text-gray-400 italic">Not yet assigned</span>}
                       <button onClick={() => { setInvoiceValue(log.invoice_number || ''); setEditingInvoice(true) }}
-                        className="text-blue-500 text-xs hover:underline print:hidden">
+                        className="text-blue-500 text-xs hover:underline">
                         {log.invoice_number ? 'Edit' : 'Add'}
                       </button>
                     </span>
@@ -440,7 +469,6 @@ export default function ReceivingDetailPage() {
                   <span className="text-gray-800 font-medium">{log.written_up_by || '—'}</span>
                 </div>
               </div>
-
               {(log.transport_clean !== null || log.transport_ventilation !== null || log.transport_no_damage !== null || log.product_condition_ok !== null || log.safety_guidelines_ok !== null) && (
                 <div className="mt-4 pt-4 border-t border-gray-100">
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Transport Conditions</p>
@@ -462,7 +490,6 @@ export default function ReceivingDetailPage() {
                   </div>
                 </div>
               )}
-
               {log.comments && (
                 <div className="mt-4 pt-4 border-t border-gray-100">
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Comments</p>
@@ -479,12 +506,11 @@ export default function ReceivingDetailPage() {
             <h2 className="text-lg font-semibold text-gray-800">Product Lines ({items.length})</h2>
             {!addingItem && (
               <button onClick={() => setAddingItem(true)}
-                className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded font-medium hover:bg-blue-700 transition-colors print:hidden">
+                className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded font-medium hover:bg-blue-700 transition-colors">
                 + Add Item
               </button>
             )}
           </div>
-
           {addingItem && (
             <form onSubmit={addItem} className="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-4 space-y-3">
               <p className="text-sm font-semibold text-blue-800">New Product Line</p>
@@ -498,8 +524,7 @@ export default function ReceivingDetailPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">UPC</label>
-                  <input type="text" value={newUpc} onChange={e => setNewUpc(e.target.value)}
-                    inputMode="numeric"
+                  <input type="text" value={newUpc} onChange={e => setNewUpc(e.target.value)} inputMode="numeric"
                     className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
@@ -509,26 +534,22 @@ export default function ReceivingDetailPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Pallets</label>
-                  <input type="number" value={newPallets} onChange={e => setNewPallets(e.target.value)}
-                    min="0" inputMode="numeric"
+                  <input type="number" value={newPallets} onChange={e => setNewPallets(e.target.value)} min="0" inputMode="numeric"
                     className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Cases</label>
-                  <input type="number" value={newCases} onChange={e => setNewCases(e.target.value)}
-                    min="0" inputMode="numeric"
+                  <input type="number" value={newCases} onChange={e => setNewCases(e.target.value)} min="0" inputMode="numeric"
                     className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Weight / Pallet</label>
-                  <input type="text" value={newWeight} onChange={e => setNewWeight(e.target.value)}
-                    placeholder="e.g. 1,200 lbs"
+                  <input type="text" value={newWeight} onChange={e => setNewWeight(e.target.value)} placeholder="e.g. 1,200 lbs"
                     className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Location</label>
-                  <input type="text" value={newLocation} onChange={e => setNewLocation(e.target.value)}
-                    placeholder="e.g. Freezer A-3"
+                  <input type="text" value={newLocation} onChange={e => setNewLocation(e.target.value)} placeholder="e.g. Freezer A-3"
                     className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               </div>
@@ -542,7 +563,6 @@ export default function ReceivingDetailPage() {
               </div>
             </form>
           )}
-
           {items.length === 0 ? (
             <p className="text-gray-400 text-sm">No product lines yet. Add items above.</p>
           ) : (
@@ -553,12 +573,12 @@ export default function ReceivingDetailPage() {
                     <th className="text-left pb-2 pr-4">Lot #</th>
                     <th className="text-left pb-2 pr-4">Description</th>
                     <th className="text-left pb-2 pr-4">UPC</th>
-                    <th className="text-left pb-2 pr-4">Pallets</th>
+                    <th className="text-left pb-2 pr-4">Plts</th>
                     <th className="text-left pb-2 pr-4">Cases</th>
                     <th className="text-left pb-2 pr-4">Code Date</th>
-                    <th className="text-left pb-2 pr-4">Wt/Pallet</th>
+                    <th className="text-left pb-2 pr-4">Wt/Plt</th>
                     <th className="text-left pb-2 pr-4">Location</th>
-                    <th className="pb-2 print:hidden"></th>
+                    <th className="pb-2"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -566,12 +586,8 @@ export default function ReceivingDetailPage() {
                     <tr key={item.id} className={editingItem === item.id ? 'bg-blue-50' : 'hover:bg-gray-50'}>
                       {editingItem === item.id ? (
                         <>
-                          <td className="py-2 pr-4">
-                            <span className="font-mono font-bold text-blue-700">
-                              #{String(item.lot_number).padStart(5, '0')}
-                            </span>
-                          </td>
-                          {['description', 'upc', 'pallets', 'cases', 'code_date', 'weight_per_pallet', 'location'].map(field => (
+                          <td className="py-2 pr-4 font-mono font-bold text-blue-700">#{String(item.lot_number).padStart(5, '0')}</td>
+                          {['description','upc','pallets','cases','code_date','weight_per_pallet','location'].map(field => (
                             <td key={field} className="py-2 pr-4">
                               <input
                                 type={field === 'pallets' || field === 'cases' ? 'number' : field === 'code_date' ? 'date' : 'text'}
@@ -581,20 +597,16 @@ export default function ReceivingDetailPage() {
                               />
                             </td>
                           ))}
-                          <td className="py-2 print:hidden">
+                          <td className="py-2">
                             <div className="flex gap-2">
-                              <button onClick={() => saveItem(item.id)}
-                                className="text-blue-600 text-xs hover:underline">Save</button>
-                              <button onClick={() => setEditingItem(null)}
-                                className="text-gray-400 text-xs hover:underline">Cancel</button>
+                              <button onClick={() => saveItem(item.id)} className="text-blue-600 text-xs hover:underline">Save</button>
+                              <button onClick={() => setEditingItem(null)} className="text-gray-400 text-xs hover:underline">Cancel</button>
                             </div>
                           </td>
                         </>
                       ) : (
                         <>
-                          <td className="py-2 pr-4 font-mono font-bold text-blue-700">
-                            #{String(item.lot_number).padStart(5, '0')}
-                          </td>
+                          <td className="py-2 pr-4 font-mono font-bold text-blue-700">#{String(item.lot_number).padStart(5, '0')}</td>
                           <td className="py-2 pr-4 text-gray-800">{item.description || '—'}</td>
                           <td className="py-2 pr-4 text-gray-600">{item.upc || '—'}</td>
                           <td className="py-2 pr-4 text-gray-600">{item.pallets ?? '—'}</td>
@@ -602,12 +614,10 @@ export default function ReceivingDetailPage() {
                           <td className="py-2 pr-4 text-gray-600">{item.code_date || '—'}</td>
                           <td className="py-2 pr-4 text-gray-600">{item.weight_per_pallet || '—'}</td>
                           <td className="py-2 pr-4 text-gray-600">{item.location || '—'}</td>
-                          <td className="py-2 print:hidden">
+                          <td className="py-2">
                             <div className="flex gap-2">
-                              <button onClick={() => openItemEdit(item)}
-                                className="text-blue-500 text-xs hover:underline">Edit</button>
-                              <button onClick={() => deleteItem(item.id)}
-                                className="text-red-400 text-xs hover:underline">×</button>
+                              <button onClick={() => openItemEdit(item)} className="text-blue-500 text-xs hover:underline">Edit</button>
+                              <button onClick={() => deleteItem(item.id)} className="text-red-400 text-xs hover:underline">×</button>
                             </div>
                           </td>
                         </>
@@ -620,14 +630,199 @@ export default function ReceivingDetailPage() {
           )}
         </div>
 
+        {/* Attachments */}
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-gray-800">Attachments ({attachments.length})</h2>
+          </div>
+
+          {attachments.length > 0 && (
+            <ul className="divide-y divide-gray-100 mb-4">
+              {attachments.map(att => (
+                <li key={att.id} className="py-3 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${typeBadgeColor(att.file_type)}`}>
+                      {typeLabel(att.file_type)}
+                    </span>
+                    <span className="text-sm text-gray-700 truncate">{att.file_name}</span>
+                  </div>
+                  <div className="flex gap-3 shrink-0">
+                    <button onClick={() => openAttachment(att)}
+                      className="text-sm text-blue-600 hover:underline">Open</button>
+                    <button onClick={() => deleteAttachment(att)}
+                      className="text-sm text-red-400 hover:underline">Delete</button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="flex items-center gap-3 flex-wrap">
+            <select value={uploadType} onChange={e => setUploadType(e.target.value)}
+              className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              {FILE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+            <input ref={fileInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.tiff"
+              onChange={handleFileUpload} className="hidden" />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-1.5 rounded text-sm font-medium transition-colors disabled:opacity-50">
+              {uploading ? 'Uploading…' : '+ Attach File'}
+            </button>
+            <span className="text-xs text-gray-400">PDF, JPG, PNG accepted</span>
+          </div>
+        </div>
+
       </main>
+
+      {/* ── Print layout — hidden on screen, visible on print ── */}
+      <div className="hidden print:block p-6 text-sm">
+
+        {/* Header */}
+        <div className="text-center mb-1">
+          <h1 className="text-xl font-bold tracking-wide">WAREHOUSE RECEIVING RECORD</h1>
+          <p className="text-base font-semibold">NORTHEAST REFRIGERATED DIST. CO.</p>
+          <p className="text-xs text-gray-500">978-851-4747 · FAX 978-863-9550</p>
+        </div>
+
+        {/* Shipment header fields */}
+        <table className="w-full border-collapse border border-black text-xs mb-0">
+          <tbody>
+            <tr>
+              <td className="border border-black px-2 py-1 w-24 font-semibold bg-gray-50">Account / Shipper</td>
+              <td className="border border-black px-2 py-1 w-48">{log.vendor_name}</td>
+              <td className="border border-black px-2 py-1 w-20 font-semibold bg-gray-50">Date</td>
+              <td className="border border-black px-2 py-1 w-28">{log.received_date}</td>
+              <td className="border border-black px-2 py-1 w-24 font-semibold bg-gray-50">Truck / Unit #</td>
+              <td className="border border-black px-2 py-1">{log.truck_number || ''}</td>
+            </tr>
+            <tr>
+              <td className="border border-black px-2 py-1 font-semibold bg-gray-50">Carrier</td>
+              <td className="border border-black px-2 py-1">{log.po_carrier || ''}</td>
+              <td className="border border-black px-2 py-1 font-semibold bg-gray-50">P.O.</td>
+              <td className="border border-black px-2 py-1">{log.po_carrier || ''}</td>
+              <td className="border border-black px-2 py-1 font-semibold bg-gray-50">Permit # (DOT)</td>
+              <td className="border border-black px-2 py-1">{log.dot_permit || ''}</td>
+            </tr>
+            {log.invoice_number && (
+              <tr>
+                <td className="border border-black px-2 py-1 font-semibold bg-gray-50">Invoice #</td>
+                <td className="border border-black px-2 py-1" colSpan={5}>{log.invoice_number}</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+
+        {/* Product lines table */}
+        <table className="w-full border-collapse border border-black text-xs mt-0">
+          <thead>
+            <tr className="bg-gray-100">
+              <th className="border border-black px-1 py-1 text-center">UPC</th>
+              <th className="border border-black px-1 py-1 text-center">LOT #</th>
+              <th className="border border-black px-1 py-1 text-center">Plts</th>
+              <th className="border border-black px-1 py-1 text-center">Cases</th>
+              <th className="border border-black px-1 py-1 text-center">Rec'd</th>
+              <th className="border border-black px-1 py-1 text-center">Code Date</th>
+              <th className="border border-black px-1 py-1 text-left">Description</th>
+              <th className="border border-black px-1 py-1 text-center">Weigh Per Plt</th>
+              <th className="border border-black px-1 py-1 text-left">Location</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(item => (
+              <tr key={item.id}>
+                <td className="border border-black px-1 py-1.5 text-center">{item.upc || ''}</td>
+                <td className="border border-black px-1 py-1.5 text-center font-bold">{String(item.lot_number).padStart(5, '0')}</td>
+                <td className="border border-black px-1 py-1.5 text-center">{item.pallets ?? ''}</td>
+                <td className="border border-black px-1 py-1.5 text-center">{item.cases ?? ''}</td>
+                <td className="border border-black px-1 py-1.5 text-center">{item.cases ?? ''}</td>
+                <td className="border border-black px-1 py-1.5 text-center">{item.code_date || ''}</td>
+                <td className="border border-black px-1 py-1.5">{item.description || ''}</td>
+                <td className="border border-black px-1 py-1.5 text-center">{item.weight_per_pallet || ''}</td>
+                <td className="border border-black px-1 py-1.5">{item.location || ''}</td>
+              </tr>
+            ))}
+            {/* Blank rows to pad the table */}
+            {Array.from({ length: Math.max(0, 8 - items.length) }).map((_, i) => (
+              <tr key={`blank-${i}`}>
+                {Array.from({ length: 9 }).map((_, j) => (
+                  <td key={j} className="border border-black px-1 py-3"></td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {/* Transport conditions */}
+        <table className="w-full border-collapse border border-black text-xs mt-0">
+          <tbody>
+            <tr>
+              <td className="border border-black px-2 py-1 font-semibold bg-gray-50 w-48">
+                Transportation Condition Of<br />Unit was Clean And<br />Exterior Of
+              </td>
+              <td className="border border-black px-2 py-1 w-24">
+                Truck AND<br />
+                <span className="font-bold">{log.transport_clean === true ? '✓ Yes' : log.transport_clean === false ? '✗ No' : ''}</span>
+              </td>
+              <td className="border border-black px-2 py-1 font-semibold bg-gray-50 w-48">
+                With Proper ventilation without<br />Any inspected
+              </td>
+              <td className="border border-black px-2 py-1 w-24">
+                <span className="font-bold">{log.transport_ventilation === true ? '✓ Yes' : log.transport_ventilation === false ? '✗ No' : ''}</span>
+              </td>
+              <td className="border border-black px-2 py-1 font-semibold bg-gray-50 w-32">Gaps Or Cracks</td>
+              <td className="border border-black px-2 py-1">
+                <span className="font-bold">{log.transport_no_damage === true ? '✓ Yes' : log.transport_no_damage === false ? '✗ No' : ''}</span>
+              </td>
+            </tr>
+            <tr>
+              <td className="border border-black px-2 py-1 font-semibold bg-gray-50">Product Condition</td>
+              <td className="border border-black px-2 py-1">
+                <span className="font-bold">{log.product_condition_ok === true ? '✓ OK' : log.product_condition_ok === false ? '✗ Not OK' : ''}</span>
+              </td>
+              <td className="border border-black px-2 py-1 font-semibold bg-gray-50">Safety Guidelines Followed</td>
+              <td className="border border-black px-2 py-1">
+                <span className="font-bold">{log.safety_guidelines_ok === true ? '✓ Yes' : log.safety_guidelines_ok === false ? '✗ No' : ''}</span>
+              </td>
+              <td className="border border-black px-2 py-1 font-semibold bg-gray-50">Comments</td>
+              <td className="border border-black px-2 py-1">{log.comments || ''}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* Signatures */}
+        <table className="w-full border-collapse border border-black text-xs mt-0">
+          <tbody>
+            <tr>
+              <td className="border border-black px-2 py-3 w-1/2">
+                <span className="font-semibold">Rec'd by: </span>{log.received_by || ''}
+              </td>
+              <td className="border border-black px-2 py-3 w-1/2">
+                <span className="font-semibold">Written up by: </span>{log.written_up_by || ''}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* Attached documents list */}
+        {attachments.length > 0 && (
+          <div className="mt-4 text-xs text-gray-500">
+            <p className="font-semibold mb-1">Attached documents:</p>
+            <ul className="list-disc pl-4 space-y-0.5">
+              {attachments.map(att => (
+                <li key={att.id}>{typeLabel(att.file_type)}: {att.file_name}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+      </div>
 
       <style jsx global>{`
         @media print {
-          .print\\:hidden { display: none !important; }
-          .print\\:block { display: block !important; }
           body { background: white; }
-          header { box-shadow: none; }
+          @page { margin: 0.5in; }
         }
       `}</style>
     </div>
