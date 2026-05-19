@@ -26,6 +26,7 @@ function NewReceivingForm() {
   const [comments, setComments] = useState('')
   const [receivedBy, setReceivedBy] = useState('')
   const [writtenBy, setWrittenBy] = useState('')
+  const [teamMembers, setTeamMembers] = useState([])
 
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -40,6 +41,8 @@ function NewReceivingForm() {
         if (v) setVendor(v)
       }
     })
+    supabase.from('team_members').select('display_name').eq('active', true).order('display_name')
+      .then(({ data }) => { if (data) setTeamMembers(data.map(r => r.display_name)) })
   }, [router, searchParams])
 
   async function handleSubmit(e) {
@@ -146,15 +149,19 @@ function NewReceivingForm() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Received By</label>
-                <input type="text" value={receivedBy} onChange={e => setReceivedBy(e.target.value)}
-                  placeholder="Name"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <select value={receivedBy} onChange={e => setReceivedBy(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="">-- Select --</option>
+                  {teamMembers.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Written Up By</label>
-                <input type="text" value={writtenBy} onChange={e => setWrittenBy(e.target.value)}
-                  placeholder="Name"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <select value={writtenBy} onChange={e => setWrittenBy(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="">-- Select --</option>
+                  {teamMembers.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
               </div>
             </div>
 

@@ -54,6 +54,7 @@ export default function ReceivingDetailPage() {
   // Inline item editing
   const [editingItem, setEditingItem] = useState(null)
   const [editItemData, setEditItemData] = useState({})
+  const [teamMembers, setTeamMembers] = useState([])
 
   const router = useRouter()
   const params = useParams()
@@ -82,6 +83,8 @@ export default function ReceivingDetailPage() {
       } else {
         setUser(session.user)
         fetchLog()
+        supabase.from('team_members').select('display_name').eq('active', true).order('display_name')
+          .then(({ data }) => { if (data) setTeamMembers(data.map(r => r.display_name)) })
       }
     })
   }, [router, fetchLog])
@@ -336,13 +339,19 @@ export default function ReceivingDetailPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Received By</label>
-                  <input type="text" value={editReceivedBy} onChange={e => setEditReceivedBy(e.target.value)}
-                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <select value={editReceivedBy} onChange={e => setEditReceivedBy(e.target.value)}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">-- Select --</option>
+                    {teamMembers.map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Written Up By</label>
-                  <input type="text" value={editWrittenBy} onChange={e => setEditWrittenBy(e.target.value)}
-                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <select value={editWrittenBy} onChange={e => setEditWrittenBy(e.target.value)}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">-- Select --</option>
+                    {teamMembers.map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
                 </div>
               </div>
               <div>
