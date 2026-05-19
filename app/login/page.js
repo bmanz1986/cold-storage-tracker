@@ -3,28 +3,9 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
-const STORAGE_KEY = 'cst_recent_users'
-
-function getRecentUsers() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
-  } catch {
-    return []
-  }
-}
-
-function saveRecentUser(email) {
-  const existing = getRecentUsers().filter(e => e !== email)
-  localStorage.setItem(STORAGE_KEY, JSON.stringify([email, ...existing].slice(0, 8)))
-}
-
-function displayName(email) {
-  return email.split('@')[0]
-}
-
 export default function LoginPage() {
-  const [recentUsers, setRecentUsers] = useState([])
-  const [selectedUser, setSelectedUser] = useState(null) // email string
+  const [teamMembers, setTeamMembers] = useState([])
+  const [selectedUser, setSelectedUser] = useState(null) // { email, display_name }
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -37,21 +18,21 @@ export default function LoginPage() {
   const router = useRouter()
 
   useEffect(() => {
-    setRecentUsers(getRecentUsers())
+    supabase.from('team_members')
+      .select('email, display_name')
+      .eq('active', true)
+      .order('display_name')
+      .then(({ data }) => {
+        if (data) setTeamMembers(data)
+      })
   }, [])
 
   // Auto-submit when 4 digits entered
   useEffect(() => {
-    if (pin.length === 4) {
-      doLogin(selectedUser, pin)
+    if (pin.length === 4 && selectedUser) {
+      doLogin(selectedUser.email, pin)
     }
   }, [pin]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  function selectUser(email) {
-    setSelectedUser(email)
-    setPin('')
-    setError('')
-  }
 
   function pressKey(key) {
     if (loading) return
@@ -72,7 +53,6 @@ export default function LoginPage() {
       setPin('')
       setLoading(false)
     } else {
-      saveRecentUser(email)
       router.push('/')
       router.refresh()
     }
@@ -83,13 +63,6 @@ export default function LoginPage() {
     doLogin(manualEmail, manualPassword)
   }
 
-  function removeRecentUser(email) {
-    const updated = getRecentUsers().filter(e => e !== email)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
-    setRecentUsers(updated)
-    if (selectedUser === email) setSelectedUser(null)
-  }
-
   const PAD_KEYS = [1, 2, 3, 4, 5, 6, 7, 8, 9, null, 0, '⌫']
 
   // --- PIN pad screen ---
@@ -98,7 +71,7 @@ export default function LoginPage() {
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
         <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-xs text-center">
           <p className="text-sm text-gray-500 mb-1">Signing in as</p>
-          <p className="text-xl font-bold text-gray-800 mb-6">{displayName(selectedUser)}</p>
+          <p className="text-xl font-bold text-gray-800 mb-6">{selectedUser.display_name}</p>
 
           {/* PIN dots */}
           <div className="flex justify-center gap-4 mb-6">
@@ -106,9 +79,7 @@ export default function LoginPage() {
               <div
                 key={i}
                 className={`w-5 h-5 rounded-full border-2 transition-colors ${
-                  i < pin.length
-                    ? 'bg-blue-600 border-blue-600'
-                    : 'border-gray-300'
+                  i < pin.length ? 'bg-blue-600 border-blue-600' : 'border-gray-300'
                 }`}
               />
             ))}
@@ -158,26 +129,19 @@ export default function LoginPage() {
         <h1 className="text-2xl font-bold mb-2 text-center text-gray-800">Cold Storage Tracker</h1>
         <p className="text-center text-gray-500 text-sm mb-6">Who are you?</p>
 
-        {recentUsers.length > 0 && (
+        {teamMembers.length === 0 ? (
+          <p className="text-center text-gray-400 text-sm mb-4">Loading…</p>
+        ) : (
           <div className="space-y-2 mb-6">
-            {recentUsers.map(email => (
-              <div key={email} className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => selectUser(email)}
-                  className="flex-1 text-left px-4 py-3 rounded-lg border bg-gray-50 text-gray-800 border-gray-200 hover:bg-blue-50 hover:border-blue-300 font-medium text-sm transition-colors"
-                >
-                  {displayName(email)}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => removeRecentUser(email)}
-                  className="text-gray-300 hover:text-gray-500 text-lg px-1"
-                  title="Remove"
-                >
-                  ×
-                </button>
-              </div>
+            {teamMembers.map(member => (
+              <button
+                key={member.email}
+                type="button"
+                onClick={() => { setSelectedUser(member); setPin(''); setError('') }}
+                className="w-full text-left px-4 py-3 rounded-lg border bg-gray-50 text-gray-800 border-gray-200 hover:bg-blue-50 hover:border-blue-300 font-medium text-sm transition-colors"
+              >
+                {member.display_name}
+              </button>
             ))}
           </div>
         )}
@@ -188,7 +152,7 @@ export default function LoginPage() {
           onClick={() => setShowManual(v => !v)}
           className="w-full text-sm text-gray-400 hover:text-gray-600 text-center"
         >
-          {showManual ? '▲ Hide' : recentUsers.length > 0 ? '+ Sign in with a different account' : '+ Sign in'}
+          {showManual ? '▲ Hide' : '+ Sign in with email & password'}
         </button>
 
         {showManual && (
