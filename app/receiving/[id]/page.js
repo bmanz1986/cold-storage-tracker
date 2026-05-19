@@ -93,6 +93,15 @@ export default function ReceivingDetailPage() {
         setUser(session.user)
         fetchLog()
         fetchAttachments()
+        // Sync lot sequence from Google Sheet on page load
+        fetch('/api/lot-book')
+          .then(r => r.json())
+          .then(({ lastLot }) => {
+            if (lastLot) {
+              supabase.rpc('update_lot_sequence', { min_value: lastLot }).catch(() => {})
+            }
+          })
+          .catch(() => {})
         supabase.from('team_members').select('display_name')
           .eq('active', true).eq('show_in_ops', true).order('display_name')
           .then(({ data }) => { if (data) setTeamMembers(data.map(r => r.display_name)) })
