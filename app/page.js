@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -112,6 +112,12 @@ export default function Home() {
 
   const [inspections, setInspections] = useState({})
   const [addingInspTo, setAddingInspTo] = useState(null)
+
+  const [shipmentDocs, setShipmentDocs] = useState({})
+  const [openingDocsFor, setOpeningDocsFor] = useState(null)
+  const [docUploadType, setDocUploadType] = useState('bol')
+  const [uploadingDoc, setUploadingDoc] = useState(false)
+  const docFileInputRef = useRef(null)
   const [inspSubmitting, setInspSubmitting] = useState(false)
   const [inspMessage, setInspMessage] = useState(null)
   const [inspDirection, setInspDirection] = useState('')
@@ -164,6 +170,21 @@ export default function Home() {
     }
   }, [])
 
+  const fetchShipmentDocs = useCallback(async () => {
+    const { data } = await supabase
+      .from('arrival_attachments')
+      .select('*')
+      .order('created_at', { ascending: true })
+    if (data) {
+      const byArrival = {}
+      data.forEach(doc => {
+        if (!byArrival[doc.arrival_id]) byArrival[doc.arrival_id] = []
+        byArrival[doc.arrival_id].push(doc)
+      })
+      setShipmentDocs(byArrival)
+    }
+  }, [])
+
   const fetchInspections = useCallback(async () => {
     const { data } = await supabase
       .from('inspections')
@@ -206,6 +227,7 @@ export default function Home() {
         fetchDoorStatus()
         fetchTasks()
         fetchInspections()
+        fetchShipmentDocs()
         supabase.from('arrivals').select('truck_number').then(({ data }) => {
           if (data) setTruckNumbers([...new Set(data.map(r => r.truck_number).filter(Boolean))].sort())
         })
@@ -232,9 +254,10 @@ export default function Home() {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, fetchTasks)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'inspections' }, fetchInspections)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'arrival_attachments' }, fetchShipmentDocs)
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [user, fetchArrivals, fetchDoorStatus, fetchTasks, fetchInspections])
+  }, [user, fetchArrivals, fetchDoorStatus, fetchTasks, fetchInspections, fetchShipmentDocs])
 
   async function handleArrivalSubmit(e) {
     e.preventDefault()
@@ -378,6 +401,45 @@ export default function Home() {
       fetchArrivals()
     }
     setClearing(null)
+  }
+
+  async function handleDocUpload(e, arrivalId) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingDoc(true)
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const filePath = `arrivals/${arrivalId}/${Date.now()}_${safeName}`
+    const { error: uploadError } = await supabase.storage
+      .from('receiving-docs').upload(filePath, file)
+    if (uploadError) {
+      alert('Upload failed: ' + uploadError.message)
+      setUploadingDoc(false)
+      return
+    }
+    await supabase.from('arrival_attachments').insert({
+      arrival_id: arrivalId,
+      file_name: file.name,
+      file_path: filePath,
+      file_type: docUploadType,
+      uploaded_by: user.id,
+    })
+    e.target.value = ''
+    setUploadingDoc(false)
+    fetchShipmentDocs()
+  }
+
+  async function openShipmentDoc(doc) {
+    const { data, error } = await supabase.storage
+      .from('receiving-docs').createSignedUrl(doc.file_path, 3600)
+    if (error) { alert('Could not open file: ' + error.message); return }
+    window.open(data.signedUrl, '_blank')
+  }
+
+  async function deleteShipmentDoc(doc) {
+    if (!window.confirm(`Delete "${doc.file_name}"?`)) return
+    await supabase.storage.from('receiving-docs').remove([doc.file_path])
+    await supabase.from('arrival_attachments').delete().eq('id', doc.id)
+    fetchShipmentDocs()
   }
 
   async function handleSignOut() {
@@ -1132,7 +1194,7 @@ export default function Home() {
                           </div>
                         </form>
                       ) : (
-                        <div className="mt-1 flex gap-4">
+                        <div className="mt-1 flex gap-4 flex-wrap">
                           <button
                             onClick={() => openTaskForm(a.id)}
                             className="text-xs text-blue-600 hover:underline"
@@ -1151,7 +1213,68 @@ export default function Home() {
                           >
                             + Start Receiving Log
                           </Link>
+                          <button
+                            onClick={() => setOpeningDocsFor(openingDocsFor === a.id ? null : a.id)}
+                            className="text-xs text-purple-600 hover:underline"
+                          >
+                            Shipment Docs {shipmentDocs[a.id]?.length > 0 ? `(${shipmentDocs[a.id].length})` : ''}
+                          </button>
                         </div>
+
+                        {openingDocsFor === a.id && (
+                          <div className="mt-2 bg-purple-50 border border-purple-100 rounded-md p-3 space-y-2">
+                            <p className="text-xs font-semibold text-purple-800">Shipment Documents</p>
+
+                            {shipmentDocs[a.id]?.length > 0 && (
+                              <ul className="space-y-1">
+                                {shipmentDocs[a.id].map(doc => (
+                                  <li key={doc.id} className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0 ${
+                                        doc.file_type === 'bol' ? 'bg-blue-100 text-blue-700' :
+                                        doc.file_type === 'invoice' ? 'bg-green-100 text-green-700' :
+                                        'bg-gray-100 text-gray-600'
+                                      }`}>
+                                        {doc.file_type === 'bol' ? 'BOL' : doc.file_type === 'invoice' ? 'Invoice' : 'Other'}
+                                      </span>
+                                      <span className="text-xs text-gray-700 truncate">{doc.file_name}</span>
+                                    </div>
+                                    <div className="flex gap-2 shrink-0">
+                                      <button onClick={() => openShipmentDoc(doc)} className="text-xs text-blue-600 hover:underline">Open</button>
+                                      <button onClick={() => deleteShipmentDoc(doc)} className="text-xs text-red-400 hover:underline">Delete</button>
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <select
+                                value={docUploadType}
+                                onChange={e => setDocUploadType(e.target.value)}
+                                className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500"
+                              >
+                                <option value="bol">Bill of Lading</option>
+                                <option value="invoice">Invoice</option>
+                                <option value="other">Other</option>
+                              </select>
+                              <input
+                                ref={docFileInputRef}
+                                type="file"
+                                accept=".pdf,.png,.jpg,.jpeg"
+                                onChange={e => handleDocUpload(e, a.id)}
+                                className="hidden"
+                              />
+                              <button
+                                onClick={() => docFileInputRef.current?.click()}
+                                disabled={uploadingDoc}
+                                className="text-xs bg-purple-600 text-white px-3 py-1 rounded hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                              >
+                                {uploadingDoc ? 'Uploading…' : '+ Attach File'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       )}
                     </>
                   )}
