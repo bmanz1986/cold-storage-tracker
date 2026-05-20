@@ -1194,6 +1194,7 @@ export default function Home() {
                           </div>
                         </form>
                       ) : (
+                        <>
                         <div className="mt-1 flex gap-4 flex-wrap">
                           <button
                             onClick={() => openTaskForm(a.id)}
@@ -1275,6 +1276,7 @@ export default function Home() {
                             </div>
                           </div>
                         )}
+                        </>
                       )}
                     </>
                   )}
