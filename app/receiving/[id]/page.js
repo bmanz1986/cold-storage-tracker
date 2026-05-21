@@ -47,6 +47,7 @@ export default function ReceivingDetailPage() {
   const [newWeight, setNewWeight] = useState('')
   const [newLocation, setNewLocation] = useState('')
   const [savingItem, setSavingItem] = useState(false)
+  const [nextLotNumber, setNextLotNumber] = useState(null)
 
   // Invoice-only edit
   const [editingInvoice, setEditingInvoice] = useState(false)
@@ -93,15 +94,15 @@ export default function ReceivingDetailPage() {
         setUser(session.user)
         fetchLog()
         fetchAttachments()
-        // Sync lot sequence from Google Sheet on page load
-        fetch('/api/lot-book')
-          .then(r => r.json())
-          .then(({ lastLot }) => {
-            if (lastLot) {
-              supabase.rpc('update_lot_sequence', { min_value: lastLot }).catch(() => {})
-            }
-          })
-          .catch(() => {})
+        // Derive next lot number from the max of the sheet's last lot and the DB's highest lot
+        Promise.all([
+          fetch('/api/lot-book').then(r => r.json()).catch(() => ({ lastLot: null })),
+          supabase.from('receiving_items').select('lot_number').order('lot_number', { ascending: false }).limit(1).maybeSingle(),
+        ]).then(([{ lastLot }, { data: maxItem }]) => {
+          const sheetMax = lastLot || 0
+          const dbMax = maxItem?.lot_number || 0
+          setNextLotNumber(Math.max(sheetMax, dbMax) + 1)
+        })
         supabase.from('team_members').select('display_name')
           .eq('active', true).eq('show_in_ops', true).order('display_name')
           .then(({ data }) => { if (data) setTeamMembers(data.map(r => r.display_name)) })
@@ -167,7 +168,7 @@ export default function ReceivingDetailPage() {
   async function addItem(e) {
     e.preventDefault()
     setSavingItem(true)
-    const { data: newItem, error } = await supabase.from('receiving_items').insert({
+    const insertData = {
       receiving_log_id: id,
       upc: newUpc || null,
       description: newDesc || null,
@@ -176,8 +177,11 @@ export default function ReceivingDetailPage() {
       code_date: newCodeDate || null,
       weight_per_pallet: newWeight || null,
       location: newLocation || null,
-    }).select().single()
+    }
+    if (nextLotNumber !== null) insertData.lot_number = nextLotNumber
+    const { data: newItem, error } = await supabase.from('receiving_items').insert(insertData).select().single()
     if (!error) {
+      setNextLotNumber(prev => prev !== null ? prev + 1 : null)
       setAddingItem(false)
       setNewUpc(''); setNewDesc(''); setNewPallets(''); setNewCases('')
       setNewCodeDate(''); setNewWeight(''); setNewLocation('')
@@ -529,7 +533,11 @@ export default function ReceivingDetailPage() {
           {addingItem && (
             <form onSubmit={addItem} className="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-4 space-y-3">
               <p className="text-sm font-semibold text-blue-800">New Product Line</p>
-              <p className="text-xs text-blue-600">Lot number will be assigned automatically.</p>
+              <p className="text-xs text-blue-600">
+                {nextLotNumber !== null
+                  ? `Next lot: #${String(nextLotNumber).padStart(5, '0')}`
+                  : 'Lot number will be assigned automatically.'}
+              </p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>

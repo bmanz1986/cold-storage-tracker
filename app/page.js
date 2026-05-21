@@ -151,7 +151,7 @@ export default function Home() {
       .from('arrivals')
       .select('*')
       .order('arrived_at', { ascending: false })
-      .limit(20)
+      .limit(200)
     if (data) setArrivals(data)
   }, [])
 
