@@ -96,12 +96,14 @@ export default function ReceivingDetailPage() {
         fetchAttachments()
         // Derive next lot number from the max of the sheet's last lot and the DB's highest lot
         Promise.all([
-          fetch('/api/lot-book').then(r => r.json()).catch(() => ({ lastLot: null })),
+          fetch('/api/lot-book').then(r => r.json()).catch(() => ({ lastLot: null, error: 'fetch failed' })),
           supabase.from('receiving_items').select('lot_number').order('lot_number', { ascending: false }).limit(1).maybeSingle(),
-        ]).then(([{ lastLot }, { data: maxItem }]) => {
-          const sheetMax = lastLot || 0
+        ]).then(([sheetRes, { data: maxItem }]) => {
+          const sheetMax = sheetRes.lastLot || 0
           const dbMax = maxItem?.lot_number || 0
-          setNextLotNumber(Math.max(sheetMax, dbMax) + 1)
+          const next = Math.max(sheetMax, dbMax) + 1
+          console.log('[lot-book]', { sheetLastLot: sheetRes.lastLot, sheetConfigured: sheetRes.configured, sheetError: sheetRes.error, dbMax, nextLot: next })
+          setNextLotNumber(next)
         })
         supabase.from('team_members').select('display_name')
           .eq('active', true).eq('show_in_ops', true).order('display_name')
