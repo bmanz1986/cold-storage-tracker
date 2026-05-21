@@ -13,8 +13,18 @@ function isConfigured() {
   return !!(process.env.GOOGLE_SERVICE_ACCOUNT_JSON && process.env.GOOGLE_SHEET_ID)
 }
 
-// GET — returns the last filled-out lot number (last row that has a UPC or cases entered,
-// ignoring blank placeholder rows that were pre-entered for upcoming work)
+// Actual sheet column layout (Log Book tab):
+//   A (index 0) = UPC
+//   B (index 1) = empty
+//   C (index 2) = empty
+//   D (index 3) = Lot#
+//   E (index 4) = Cases
+//   F (index 5) = Date rec'v
+//   G (index 6) = Code Date
+//   H (index 7) = Cust
+
+// GET — returns the last filled-out lot number in the app's numbering range (≤ 9999).
+// Skips blank placeholder rows (no UPC and no cases) and historical lots (75000+).
 export async function GET() {
   if (!isConfigured()) {
     return NextResponse.json({ lastLot: null, configured: false })
@@ -30,17 +40,18 @@ export async function GET() {
     const rows = data.values || []
     let lastFilledLot = null
 
-    // Skip header row (index 0). A "filled out" row has data in column A (UPC) or column E (Cases).
-    // Column D (index 3) = lot number, Column A (index 0) = UPC, Column E (index 4) = Cases
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i]
-      const lotRaw = row[3]
-      const upc = (row[0] || '').trim()
-      const cases = (row[4] || '').trim()
+      const lotRaw = row[3]                      // Column D = Lot#
+      const upc = (row[0] || '').trim()          // Column A = UPC
+      const cases = (row[4] || '').trim()        // Column E = Cases
       if (!lotRaw) continue
       const lotNum = parseInt(String(lotRaw).replace(/\D/g, ''), 10)
       if (isNaN(lotNum)) continue
-      // Only count this row if it has actual data beyond just the lot number
+      // Only consider lots in the app's numbering range — historical lots (75000+) are
+      // a different system and should not influence the next lot assignment.
+      if (lotNum > 9999) continue
+      // Only count as "filled" if it has actual data beyond just the lot number
       if (upc || cases) {
         if (lastFilledLot === null || lotNum > lastFilledLot) {
           lastFilledLot = lotNum
@@ -81,7 +92,7 @@ export async function POST(request) {
       log.vendor_name || '',
     ]
 
-    // Read column D to find if this lot number already has a row
+    // Read column D to find if this lot number already has a pre-entered placeholder row
     const { data } = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: 'D:D',
@@ -98,7 +109,7 @@ export async function POST(request) {
     }
 
     if (existingRowIndex > 0) {
-      // Update the existing pre-entered row
+      // Fill in the existing pre-entered placeholder row
       await sheets.spreadsheets.values.update({
         spreadsheetId,
         range: `A${existingRowIndex}:H${existingRowIndex}`,
@@ -106,7 +117,7 @@ export async function POST(request) {
         requestBody: { values: [rowData] },
       })
     } else {
-      // No pre-entered row — append
+      // No pre-entered row — append at the end
       await sheets.spreadsheets.values.append({
         spreadsheetId,
         range: 'A:H',
